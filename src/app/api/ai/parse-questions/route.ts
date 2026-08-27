@@ -58,6 +58,51 @@ For each question:
 5. If the document has a main title or topic, extract it as "title".
 6. If the document has an overall summary or description, extract it as "description".
 
+CRITICAL — CHOICE QUESTION FORMAT:
+When the text contains a question followed by a list of lettered choices, those choices are OPTIONS of ONE question, NOT separate questions. Detect these markers:
+- Bullet lists starting with "* A.", "* B.", "* a.", "* b.", "- A.", "- a.", "A.", "a."
+- Numbered lists "1.", "2.", "3."
+- Lines beginning with letters followed by a period and a space
+- A "Correct:" or "Answer:" line after the options marks the answer key — IGNORE it (do not extract as a question)
+
+If the question ends with "Pilih pernyataan yang tepat" / "Pilih semua yang sesuai" / "Which of the following" / "Select all that apply" → use MULTIPLE_CHOICE and set "allowMultiple": true.
+If the question ends with "Pilih salah satu" / "Which one" / "Select one" → use SINGLE_CHOICE and set "allowMultiple": false.
+
+EXAMPLE INPUT:
+\`\`\`
+## 16. HRIS Functional Understanding
+**Type:** MULTIPLE_CHOICE
+
+Sebuah perusahaan akan mengganti proses HR...
+
+* A. Struktur organisasi...
+* B. Perhitungan Payroll sebaiknya...
+* C. Overtime yang tercatat...
+* D. PPh 21...
+
+**Correct:** A, C
+\`\`\`
+
+CORRECT OUTPUT (one question with options):
+{
+  "questions": [{
+    "text": "Sebuah perusahaan akan mengganti proses HR...",
+    "type": "MULTIPLE_CHOICE",
+    "options": {
+      "options": [
+        "Struktur organisasi...",
+        "Perhitungan Payroll sebaiknya...",
+        "Overtime yang tercatat...",
+        "PPh 21..."
+      ],
+      "allowMultiple": true
+    }
+  }]
+}
+
+INCORRECT OUTPUT (DO NOT DO THIS — creates extra questions):
+{ "questions": [{ text: "A. Struktur...", type: "OPEN_ENDED" }, { text: "B. Perhitungan...", type: "OPEN_ENDED" }, ...] }
+
 LANGUAGE INSTRUCTION: Preserve the text content in ${targetLanguage}. Do not translate unless explicitly requested.
 
 OUTPUT FORMAT (JSON only, no markdown wrappers):
