@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { trpc } from "@/lib/trpc/client";
 import { cn } from "@/lib/utils";
 import {
+    BarChart3,
     BrainCircuit,
     ExternalLink,
     Link2,
@@ -61,12 +62,24 @@ const tabSkeletons: Record<string, React.ReactNode> = {
       <Skeleton className="h-[300px]" />
     </div>
   ),
+  reports: (
+    <div className="space-y-6">
+      <Skeleton className="h-24" />
+      <div className="grid grid-cols-3 gap-4">
+        <Skeleton className="h-24" />
+        <Skeleton className="h-24" />
+        <Skeleton className="h-24" />
+      </div>
+      <Skeleton className="h-[400px]" />
+    </div>
+  ),
 };
 
 const tabs = [
   { value: "content", labelKey: "header.content", icon: ListOrdered, href: "" },
   { value: "settings", labelKey: "header.settings", icon: Settings, href: "/settings" },
   { value: "sessions", labelKey: "header.sessions", icon: Users, href: "/sessions" },
+  { value: "reports", labelKey: "header.reports", icon: BarChart3, href: "/reports" },
   { value: "prep", labelKey: "header.practices", icon: BrainCircuit, href: "/prep" },
 ] as const;
 
@@ -109,6 +122,7 @@ export default function EditInterviewLayout({
   const activeTab = useMemo(() => {
     if (pathname.endsWith("/settings")) return "settings";
     if (pathname.endsWith("/sessions")) return "sessions";
+    if (pathname.endsWith("/reports")) return "reports";
     if (pathname.endsWith("/prep")) return "prep";
     return "content";
   }, [pathname]);

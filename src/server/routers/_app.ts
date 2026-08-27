@@ -14,6 +14,7 @@ import { candidateRouter } from "./candidate";
 import { answerBankRouter } from "./answer-bank";
 import { prepRouter } from "./prep";
 import { usageRouter } from "./usage";
+import { reportRouter } from "./report";
 
 export const appRouter = router({
   auth: authRouter,
@@ -31,6 +32,7 @@ export const appRouter = router({
   prep: prepRouter,
   answerBank: answerBankRouter,
   usage: usageRouter,
+  report: reportRouter,
 });
 
 export type AppRouter = typeof appRouter;

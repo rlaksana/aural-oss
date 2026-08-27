@@ -23,7 +23,7 @@ const candidateFields = z.object({
 /*  Helper: verify interview access via org membership                 */
 /* ------------------------------------------------------------------ */
 
-async function verifyInterviewAccess(
+export async function verifyInterviewAccess(
   supabase: Parameters<typeof getOrgMembership>[0],
   interviewId: string,
   userId: string,
