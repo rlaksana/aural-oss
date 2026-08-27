@@ -32,10 +32,30 @@ export class MinimaxProvider implements LLMProvider {
   }
 
   private toOpenAIMessages(messages: LLMMessage[]): ChatCompletionMessageParam[] {
-    return messages.map((m) => ({
-      role: m.role,
-      content: m.content as string & Array<unknown>,
-    })) as ChatCompletionMessageParam[];
+    const formatted: ChatCompletionMessageParam[] = messages
+      .filter((m) => {
+        if (typeof m.content === "string") {
+          return m.content.trim().length > 0;
+        }
+        return Array.isArray(m.content) && m.content.length > 0;
+      })
+      .map((m) => ({
+        role: m.role,
+        content: m.content as string & Array<unknown>,
+      })) as ChatCompletionMessageParam[];
+
+    // MiniMax API requires at least one user message in the payload.
+    // If the prompt contains only system messages, append a user message
+    // so MiniMax does not reject it with 400 (chat content is empty - code 2013).
+    const hasUserMessage = formatted.some((m) => m.role === "user");
+    if (!hasUserMessage) {
+      formatted.push({
+        role: "user",
+        content: "Please proceed with the task as instructed.",
+      });
+    }
+
+    return formatted;
   }
 
   async generateResponse(

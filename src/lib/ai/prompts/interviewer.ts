@@ -129,12 +129,7 @@ export function buildFollowUpDetectionPrompt(
   return [
     {
       role: "system",
-      content: `Analyze the following interview response and determine if follow-up questions are needed.
-
-Response: "${response}"
-Question Asked: "${question}"
-Word Count: ${response.split(/\s+/).length} words
-Expected Depth: ${depth}
+      content: `Analyze the interview response and determine if follow-up questions are needed.
 
 Evaluate:
 1. Is the response vague or lacking specific examples?
@@ -148,6 +143,10 @@ Output valid JSON only:
   "reason": "string",
   "suggestedQuestions": ["string"]
 }`,
+    },
+    {
+      role: "user",
+      content: `Question Asked: "${question}"\nResponse: "${response}"\nWord Count: ${response.split(/\s+/).length} words\nExpected Depth: ${depth}`,
     },
   ];
 }

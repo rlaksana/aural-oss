@@ -181,7 +181,11 @@ Provide a structured analysis as VALID JSON ONLY (use only standard ASCII double
         ),
       ];
       result.push({ role: "user", content: parts });
+    } else {
+      result.push({ role: "user", content: "Please analyze the interview transcript and generate the structured JSON evaluation report." });
     }
+  } else {
+    result.push({ role: "user", content: "Please analyze the interview transcript and generate the structured JSON evaluation report." });
   }
 
   return result;
