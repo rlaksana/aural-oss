@@ -31,6 +31,7 @@ import { trpc } from "@/lib/trpc/client";
 import { cn } from "@/lib/utils";
 import { QUESTION_TYPE_STYLES } from "@/components/interview/question-card";
 import {
+  BrainCircuit,
   Check,
   Copy,
   ListOrdered,
@@ -39,11 +40,12 @@ import {
   Pencil,
   Plus,
   Search,
+  Sparkles,
   Target,
   Trash2,
   X,
 } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface Question {
   id: string;
@@ -78,6 +80,7 @@ export function QuestionBuilder({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [addingNew, setAddingNew] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [parseOpen, setParseOpen] = useState(false);
 
   // Assessment criteria state
   const [editableCriteria, setEditableCriteria] = useState<AssessmentCriterion[]>(
@@ -314,6 +317,15 @@ export function QuestionBuilder({
                 variant="outline"
                 size="sm"
                 className="flex-1 border-dashed"
+                onClick={() => setParseOpen(true)}
+              >
+                <BrainCircuit className="mr-1 h-3.5 w-3.5" />
+                Parse Text
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 border-dashed"
                 onClick={() => setImportOpen(true)}
               >
                 <Copy className="mr-1 h-3.5 w-3.5" />
@@ -323,6 +335,18 @@ export function QuestionBuilder({
           )}
         </CardContent>
       </Card>
+
+      {/* Parse Text Dialog */}
+      <ParseTextDialog
+        open={parseOpen}
+        onOpenChange={setParseOpen}
+        interviewId={interviewId}
+        existingQuestionTexts={questions.map((q) => q.text)}
+        onAdded={(count) => {
+          utils.interview.getById.invalidate({ id: interviewId });
+          toast({ title: `${count} question${count > 1 ? "s" : ""} added` });
+        }}
+      />
 
       {/* Import Questions Dialog */}
       <ImportQuestionsDialog
@@ -565,6 +589,202 @@ export function QuestionBuilder({
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Parse Text Dialog                                                  */
+/* ------------------------------------------------------------------ */
+
+function ParseTextDialog({
+  open,
+  onOpenChange,
+  interviewId,
+  existingQuestionTexts,
+  onAdded,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  interviewId: string;
+  existingQuestionTexts: string[];
+  onAdded: (count: number) => void;
+}) {
+  const { toast } = useToast();
+  const [text, setText] = useState("");
+  const [extracting, setExtracting] = useState(false);
+  const [phase, setPhase] = useState<"idle" | "writing">("idle");
+  const [streamedText, setStreamedText] = useState("");
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  const createMutation = trpc.question.create.useMutation();
+
+  useEffect(() => {
+    if (contentRef.current) {
+      contentRef.current.scrollTop = contentRef.current.scrollHeight;
+    }
+  }, [streamedText]);
+
+  const handleClose = (v: boolean) => {
+    if (extracting) return;
+    if (!v) {
+      setText("");
+      setStreamedText("");
+      setPhase("idle");
+    }
+    onOpenChange(v);
+  };
+
+  const handleExtract = async () => {
+    if (!text.trim()) return;
+
+    setExtracting(true);
+    setPhase("writing");
+    setStreamedText("");
+
+    try {
+      const response = await fetch("/api/ai/parse-questions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, language: "en" }),
+      });
+
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}));
+        throw new Error(errBody.error || "Parsing failed");
+      }
+
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let parsed: { questions: Array<{ text: string; type: "OPEN_ENDED" | "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "CODING" | "WHITEBOARD" | "RESEARCH"; description?: string; options?: { options: string[]; allowMultiple?: boolean } | null; starterCode?: { language: string; code: string } | null; timeLimitSeconds?: number | null; isRequired?: boolean }> } | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const payload = JSON.parse(line.slice(6));
+          if (payload.type === "content" && payload.text) {
+            setStreamedText((prev) => prev + payload.text);
+          } else if (payload.type === "done") {
+            parsed = payload.data;
+          } else if (payload.type === "error") {
+            throw new Error(payload.message);
+          }
+        }
+      }
+
+      if (!parsed || !parsed.questions.length) {
+        throw new Error("No questions extracted");
+      }
+
+      // De-dupe against existing questions (case-insensitive)
+      const existing = new Set(existingQuestionTexts.map((t) => t.toLowerCase().trim()));
+      const toAdd = parsed.questions.filter(
+        (q) => !existing.has(q.text.toLowerCase().trim()),
+      );
+      const skipped = parsed.questions.length - toAdd.length;
+
+      if (toAdd.length === 0) {
+        toast({ title: "All extracted questions already exist in this interview" });
+        handleClose(false);
+        return;
+      }
+
+      const baseOrder = existingQuestionTexts.length;
+      await Promise.all(
+        toAdd.map((q, i) =>
+          createMutation.mutateAsync({
+            interviewId,
+            order: baseOrder + i,
+            text: q.text,
+            type: q.type,
+            description: q.description ?? undefined,
+            options: q.options ?? undefined,
+            starterCode: q.starterCode ?? undefined,
+            timeLimitSeconds: q.timeLimitSeconds ?? undefined,
+            isRequired: q.isRequired ?? true,
+          }),
+        ),
+      );
+
+      onAdded(toAdd.length);
+      toast({
+        title: skipped > 0
+          ? `Added ${toAdd.length} question${toAdd.length > 1 ? "s" : ""} (${skipped} skipped as duplicate)`
+          : `Added ${toAdd.length} question${toAdd.length > 1 ? "s" : ""}`,
+      });
+      handleClose(false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not extract questions";
+      toast({ title: "Extraction failed", description: message, variant: "destructive" });
+      setExtracting(false);
+      setPhase("idle");
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <BrainCircuit className="h-4 w-4" />
+            Parse Text to Questions
+          </DialogTitle>
+          <DialogDescription>
+            Paste raw text, Markdown notes, or a list of questions. AI will extract each
+            question (with its type and options) and append them to this interview.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <Textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={"Paste your text here, e.g.\n\n## 16. HRIS Functional Understanding\n**Type:** MULTIPLE_CHOICE\n\nSebuah perusahaan akan mengganti proses HR...\n\n* A. ...\n* B. ..."}
+            rows={10}
+            disabled={extracting}
+            className="resize-y font-mono text-xs"
+          />
+
+          {extracting && streamedText && (
+            <div>
+              <div className="mb-1.5 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                {phase === "writing" && <Loader2 className="h-3 w-3 animate-spin" />}
+                <span>{phase === "writing" ? "AI is extracting..." : "Finalizing..."}</span>
+              </div>
+              <div
+                ref={contentRef}
+                className="max-h-32 overflow-y-auto rounded-md bg-muted/50 px-3 py-2 code-scrollbar"
+              >
+                <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+                  {streamedText}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => handleClose(false)} disabled={extracting}>
+            Cancel
+          </Button>
+          <Button onClick={handleExtract} disabled={extracting || !text.trim()}>
+            {extracting ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="mr-2 h-4 w-4" />
+            )}
+            Extract & Add
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
