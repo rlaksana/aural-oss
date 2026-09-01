@@ -26,4 +26,4 @@ jobs:
             echo "::error::DEPLOY_TOKEN secret is not set — add a PAT with push access to rlaksana/aural-deploy as a repository secret."
             exit 1
           fi
-          git push "https://x-access-token:${DEPLOY_TOKEN}@github.com/rlaksana/aural-deploy.git" main:main
+          git -c credential.helper= push "https://x-access-token:${DEPLOY_TOKEN}@github.com/rlaksana/aural-deploy.git" main:main
