@@ -3,48 +3,50 @@ import { extractJson } from "@/lib/ai/extract-json";
 import { createLogger } from "@/lib/logger";
 import { buildSummaryPrompt } from "@/lib/ai/prompts/summary";
 import { getProvider, REPORT_MODEL } from "@/lib/ai/registry";
-import { getAuthUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { NextResponse } from "next/server";
 
-const log = createLogger("api/ai/summarize");
+const log = createLogger("ai/session-summary");
 
-export async function POST(req: Request) {
-  const user = await getAuthUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+// ponytail: in-process dedupe only — concurrent serverless instances could still
+// double-generate; move the lock into Postgres (advisory lock / status column) if that shows up.
+const inFlight = new Map<string, Promise<void>>();
 
-  const { sessionId, skipExisting } = await req.json();
+/**
+ * Generate and persist the AI summary/insights for a session. Idempotent:
+ * returns immediately when a summary already exists or one is currently being
+ * generated for the same session, so multiple completion paths (voice save,
+ * chat complete, safety-net) can all call it without double LLM runs.
+ */
+export function generateSessionSummary(sessionId: string): Promise<void> {
+  const existing = inFlight.get(sessionId);
+  if (existing) return existing;
 
+  const job = run(sessionId).finally(() => inFlight.delete(sessionId));
+  inFlight.set(sessionId, job);
+  return job;
+}
+
+async function run(sessionId: string): Promise<void> {
   try {
     const { data: interviewSession } = await supabaseAdmin
       .from("sessions")
       .select(
-        `*, interview:interviews!inner(title, userId, projectId, objective, language, assessmentCriteria, questions(text, order, type)), messages(*)`,
+        `summary, interview:interviews!inner(title, objective, language, assessmentCriteria, questions(text, order, type)), messages(*)`,
       )
       .eq("id", sessionId)
       .order("order", { referencedTable: "interviews.questions", ascending: true })
       .order("timestamp", { referencedTable: "messages", ascending: true })
       .single();
 
-    if (
-      !interviewSession ||
-      (interviewSession.interview as { userId: string }).userId !== user.id
-    ) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (!interviewSession) {
+      log.info(`Session ${sessionId} not found, skipping summary`);
+      return;
     }
+    // Already summarized (summary and insights are written together) — nothing to do.
+    if (interviewSession.summary) return;
 
-    // Batch callers set skipExisting so re-running a backfill never
-    // re-generates summaries that already exist.
-    if (skipExisting && interviewSession.summary) {
-      return NextResponse.json({ skipped: true });
-    }
-
-    const interview = interviewSession.interview as {
+    const interview = interviewSession.interview as unknown as {
       title: string;
-      userId: string;
-      projectId: string;
       objective: string | null;
       language: string;
       assessmentCriteria: { name: string; description: string }[] | null;
@@ -59,7 +61,10 @@ export async function POST(req: Request) {
       content: string;
     }[];
 
-    const criteria = interview.assessmentCriteria;
+    if (msgs.length === 0) {
+      log.info(`Session ${sessionId} has no messages, skipping summary`);
+      return;
+    }
 
     const whiteboardDrawingsRaw = msgs
       .filter((m) => m.contentType === "WHITEBOARD" && m.whiteboardData)
@@ -89,7 +94,7 @@ export async function POST(req: Request) {
     const provider = getProvider(REPORT_MODEL);
     const textMessages = msgs
       .filter((m) => m.contentType === "TEXT")
-      .map((m) => ({ role: m.role, content: m.content }));
+      .map((m) => ({ role: m.role === "USER" ? "user" : "assistant", content: m.content }));
     const drawingsInput =
       whiteboardDrawings.length > 0 ? whiteboardDrawings : null;
     const codeInput = codeSnippetsInput.length > 0 ? codeSnippetsInput : null;
@@ -98,7 +103,7 @@ export async function POST(req: Request) {
       interview.title,
       textMessages,
       interview.objective,
-      criteria,
+      interview.assessmentCriteria,
       interview.questions,
       interview.language,
       drawingsInput,
@@ -129,7 +134,7 @@ export async function POST(req: Request) {
           interview.title,
           textMessages,
           interview.objective,
-          criteria,
+          interview.assessmentCriteria,
           interview.questions,
           interview.language,
           textOnlyDrawings,
@@ -174,12 +179,15 @@ export async function POST(req: Request) {
       })
       .eq("id", sessionId);
 
-    return NextResponse.json(parsed);
-  } catch (error) {
-    log.error("Summary generation error:", error);
-    return NextResponse.json(
-      { error: "Failed to generate summary" },
-      { status: 500 },
+    const themeCount = Array.isArray(parsed.themes) ? parsed.themes.length : 0;
+    const qEvalCount = Array.isArray(parsed.questionEvaluations)
+      ? parsed.questionEvaluations.length
+      : 0;
+    log.info(
+      `Summary generated for session ${sessionId}: ` +
+        `${themeCount} themes, ${qEvalCount} question evaluations`,
     );
+  } catch (error) {
+    log.error(`Summary generation failed for session ${sessionId}:`, error);
   }
 }

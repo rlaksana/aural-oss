@@ -41,3 +41,9 @@ test-results/
 # Misc
 *.pem
 .vercel
+
+# Local dev tooling indexes (machine-specific, not part of the repo)
+.codegraph/
+.codegraphignore
+.grepai/
+.serena/

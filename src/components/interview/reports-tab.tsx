@@ -7,7 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { trpc } from "@/lib/trpc/client";
+import { runSequentialSummaries } from "@/lib/report-backfill";
 import {
+  Calculator,
   Check,
   Copy,
   ExternalLink,
@@ -16,7 +18,7 @@ import {
   Share2,
   Trash2,
 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 /** Auto-refreshes every 30s so newly completed candidates appear live. */
 const REFRESH_MS = 30_000;
@@ -25,11 +27,47 @@ export function ReportsTab({ interviewId }: { interviewId: string }) {
   const { toast } = useToast();
   const utils = trpc.useUtils();
   const [copied, setCopied] = useState(false);
+  // Idempotency guard: a second click while a run is in flight is a no-op.
+  const runningRef = useRef(false);
+  const [progress, setProgress] = useState<{
+    done: number;
+    failed: number;
+    total: number;
+    current: string | null;
+  } | null>(null);
 
   const report = trpc.report.get.useQuery(
     { interviewId },
     { refetchInterval: REFRESH_MS },
   );
+
+  const pending = (report.data?.report.rows ?? []).filter(
+    (r) => r.status === "COMPLETED" && r.overallScore === null && r.sessionId,
+  );
+
+  const handleBackfill = useCallback(async () => {
+    if (runningRef.current || pending.length === 0) return;
+    runningRef.current = true;
+    setProgress({ done: 0, failed: 0, total: pending.length, current: null });
+    try {
+      const { failed } = await runSequentialSummaries(
+        pending.map((r) => ({ sessionId: r.sessionId, name: r.name })),
+        { onProgress: setProgress },
+      );
+      if (failed > 0) {
+        toast({
+          title: "Backfill finished with failures",
+          description: `${failed} session(s) could not be scored. You can safely run it again.`,
+          variant: "destructive",
+        });
+      }
+    } finally {
+      runningRef.current = false;
+      setProgress(null);
+      utils.report.get.invalidate({ interviewId });
+    }
+  }, [pending, interviewId, utils, toast]);
+
   const createLink = trpc.report.createLink.useMutation({
     onSuccess: () => {
       utils.report.get.invalidate({ interviewId });
@@ -128,6 +166,39 @@ export function ReportsTab({ interviewId }: { interviewId: string }) {
           )}
         </CardContent>
       </Card>
+
+      {/* Backfill: generate AI scores for completed sessions that lack them.
+          Sequential + idempotent — re-clicking never stacks a second run. */}
+      {!report.isLoading && pending.length > 0 && (
+        <Card>
+          <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 space-y-1">
+              <p className="flex items-center gap-2 text-sm font-medium">
+                <Calculator className="h-4 w-4 text-primary" />
+                {pending.length} completed session{pending.length > 1 ? "s" : ""} not scored yet
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Runs one-by-one, oldest pending first. Keep this tab open until
+                it finishes.
+              </p>
+            </div>
+            <Button onClick={handleBackfill} disabled={progress !== null}>
+              {progress ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {progress.done + progress.failed}/{progress.total}
+                  {progress.current ? ` — ${progress.current}` : ""}
+                </>
+              ) : (
+                <>
+                  <Calculator className="mr-2 h-4 w-4" />
+                  Calculate scores
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {report.isLoading ? (
         <div className="space-y-6">

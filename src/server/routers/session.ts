@@ -1,5 +1,7 @@
+import { generateSessionSummary } from "@/lib/ai/session-summary";
 import { createLogger } from "@/lib/logger";
 import { TRPCError } from "@trpc/server";
+import { after } from "next/server";
 import { z } from "zod";
 import { filterAccessibleProjectIds, hasProjectAccess, protectedProcedure, publicProcedure, router } from "../trpc";
 
@@ -529,6 +531,10 @@ export const sessionRouter = router({
           totalDurationSeconds: duration,
         })
         .eq("id", input.id);
+
+      // Fire-and-forget AI summary so the report gets scores without the
+      // owner having to open each session. Idempotent (skips if one exists).
+      after(() => generateSessionSummary(input.id));
 
       return { success: true };
     }),

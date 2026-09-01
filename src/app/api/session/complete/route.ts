@@ -4,9 +4,10 @@ import {
   effectiveNowForSession,
   type ActivitySegment,
 } from "@/app/api/voice/save/logic";
+import { generateSessionSummary } from "@/lib/ai/session-summary";
 import { createLogger } from "@/lib/logger";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 
 const log = createLogger("api/session/complete");
 
@@ -68,6 +69,8 @@ export async function POST(req: Request) {
       .eq("id", sessionId);
 
     log.info(`Session ${sessionId} completed via safety-net (${duration}s)`);
+
+    after(() => generateSessionSummary(sessionId));
 
     return NextResponse.json({ ok: true });
   } catch {
