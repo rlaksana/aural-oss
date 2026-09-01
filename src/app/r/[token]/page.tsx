@@ -57,7 +57,10 @@ export default async function PublicReportPage({
         </div>
       </div>
       <AutoRefresh seconds={30} />
-      <ReportView data={report} />
+      <ReportView
+        data={report}
+        sessionBasePath={`/r/${token}/session`}
+      />
       <p className="text-center text-xs text-muted-foreground">
         Shared via{" "}
         <Link href="/" className="underline">
