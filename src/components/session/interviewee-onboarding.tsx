@@ -70,9 +70,13 @@ interface IntervieweeOnboardingProps {
 
 type OnboardingStep = "info" | "checklist" | "howItWorks";
 
+// Kill-switch: checklist step (photo/mic/screen checks) is disabled for now.
+// Flip to true to restore the step.
+const CHECKLIST_ENABLED = false;
+
 const STEPS = [
   { key: "info" as const, label: "Interview Info" },
-  { key: "checklist" as const, label: "Checklist" },
+  ...(CHECKLIST_ENABLED ? [{ key: "checklist" as const, label: "Checklist" }] : []),
   { key: "enter" as const, label: "Start" },
 ];
 
@@ -1465,7 +1469,17 @@ export function IntervieweeOnboarding({
             </label>
             <Button
               disabled={!agreed}
-              onClick={() => setStep("checklist")}
+              onClick={() => {
+                if (CHECKLIST_ENABLED) {
+                  setStep("checklist");
+                  return;
+                }
+                if (voiceEnabled) {
+                  setStep("howItWorks");
+                } else {
+                  handleComplete();
+                }
+              }}
               className="w-40"
             >
               Next
