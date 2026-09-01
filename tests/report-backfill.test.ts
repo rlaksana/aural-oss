@@ -1,107 +1,127 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { runSequentialSummaries } from "../src/lib/report-backfill";
+import { runBatchSummaries } from "../src/lib/report-backfill";
 
-// fetchImpl signature mirrors global fetch: (input, init)
 type FetchCall = (input: string, init?: RequestInit) => Promise<Response>;
 
-test("runSequentialSummaries fires requests strictly one at a time", async () => {
+test("runBatchSummaries caps concurrency at 5 and refills slots dynamically", async () => {
   let active = 0;
   let maxActive = 0;
-  const order: string[] = [];
+  const processed: string[] = [];
+
+  // Varied durations: some finish fast, others slow. The fast ones should
+  // finish and immediately pull the next item from the queue without
+  // waiting for the slow ones to complete.
+  const durations: Record<string, number> = {
+    s1: 40,
+    s2: 10, // finishes early
+    s3: 10, // finishes early
+    s4: 40,
+    s5: 40,
+    s6: 10, // should be pulled the moment s2 frees a slot
+    s7: 10, // should be pulled the moment s3 frees a slot
+  };
 
   const fetchImpl: FetchCall = async (_input, init) => {
     const body = JSON.parse(init!.body as string) as { sessionId: string };
     active += 1;
     maxActive = Math.max(maxActive, active);
-    order.push(body.sessionId);
-    // Hold each request long enough that a parallel run would interleave.
-    await new Promise((r) => setTimeout(r, 10));
+    processed.push(body.sessionId);
+    await new Promise((r) => setTimeout(r, durations[body.sessionId] ?? 10));
     active -= 1;
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
   };
 
-  const progressTicks: number[] = [];
-  await runSequentialSummaries(
-    [
-      { sessionId: "s1", name: "A" },
-      { sessionId: "s2", name: "B" },
-      { sessionId: "s3", name: "C" },
-    ],
-    {
-      fetchImpl: fetchImpl as typeof fetch,
-      onProgress: (p) => progressTicks.push(p.done + p.failed),
-    },
-  );
+  const sessions = Object.keys(durations).map((id) => ({
+    sessionId: id,
+    name: id.toUpperCase(),
+  }));
 
-  assert.equal(maxActive, 1, "sequential — never more than one in flight");
-  assert.deepEqual(order, ["s1", "s2", "s3"]);
-  assert.equal(progressTicks[progressTicks.length - 1], 3);
+  const result = await runBatchSummaries(sessions, {
+    concurrency: 5,
+    fetchImpl: fetchImpl as typeof fetch,
+  });
+
+  assert.equal(maxActive, 5, "concurrency pool filled all 5 slots");
+  assert.equal(result.done, 7, "every item was processed");
+  assert.equal(result.failed, 0);
+  assert.deepEqual(
+    new Set(processed),
+    new Set(sessions.map((s) => s.sessionId)),
+    "every session was handled exactly once",
+  );
 });
 
-test("runSequentialSummaries keeps going past a failure", async () => {
-  const order: string[] = [];
-  const fetchImpl: typeof fetch = async (input, init) => {
+test("runBatchSummaries isolates failures while others continue", async () => {
+  const fetchImpl: FetchCall = async (_input, init) => {
     const body = JSON.parse(init!.body as string) as { sessionId: string };
-    order.push(body.sessionId);
     if (body.sessionId === "s2") {
-      return new Response("nope", { status: 500 });
+      return new Response("error", { status: 500 });
     }
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
   };
 
-  const result = await runSequentialSummaries(
+  const result = await runBatchSummaries(
     [
       { sessionId: "s1", name: "A" },
       { sessionId: "s2", name: "B" },
       { sessionId: "s3", name: "C" },
     ],
-    { fetchImpl },
+    { concurrency: 5, fetchImpl: fetchImpl as typeof fetch },
   );
 
-  assert.deepEqual(order, ["s1", "s2", "s3"]);
   assert.equal(result.done, 2);
   assert.equal(result.failed, 1);
 });
 
-test("runSequentialSummaries does not throw when failing entirely", async () => {
-  const fetchImpl: typeof fetch = async () =>
-    new Response("nope", { status: 500 });
-
-  const result = await runSequentialSummaries(
-    [
-      { sessionId: "s1", name: "A" },
-      { sessionId: "s2", name: "B" },
-    ],
-    { fetchImpl },
-  );
-
-  assert.equal(result.done, 0);
-  assert.equal(result.failed, 2);
-});
-
-test("runSequentialSummaries sends skipExisting on every request", async () => {
+test("runBatchSummaries sends skipExisting on every request", async () => {
   const seen: unknown[] = [];
-  const fetchImpl: typeof fetch = async (input, init) => {
+  const fetchImpl: FetchCall = async (_input, init) => {
     seen.push(JSON.parse(init!.body as string));
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
   };
 
-  await runSequentialSummaries(
-    [{ sessionId: "s1", name: "A" }],
-    { fetchImpl },
-  );
+  await runBatchSummaries([{ sessionId: "s1", name: "A" }], {
+    concurrency: 5,
+    fetchImpl: fetchImpl as typeof fetch,
+  });
 
   for (const body of seen) {
     assert.equal((body as { skipExisting: boolean }).skipExisting, true);
   }
 });
 
-test("runSequentialSummaries handles an empty batch", async () => {
-  const result = await runSequentialSummaries([], {
+test("runBatchSummaries handles empty input gracefully", async () => {
+  const result = await runBatchSummaries([], {
+    concurrency: 5,
     fetchImpl: async () => new Response("{}", { status: 200 }),
   });
 
   assert.deepEqual(result, { done: 0, failed: 0 });
+});
+
+test("runBatchSummaries respects lower custom concurrency", async () => {
+  let active = 0;
+  let maxActive = 0;
+
+  const fetchImpl: FetchCall = async () => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((r) => setTimeout(r, 10));
+    active -= 1;
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+
+  await runBatchSummaries(
+    [
+      { sessionId: "s1", name: "A" },
+      { sessionId: "s2", name: "B" },
+      { sessionId: "s3", name: "C" },
+      { sessionId: "s4", name: "D" },
+    ],
+    { concurrency: 2, fetchImpl: fetchImpl as typeof fetch },
+  );
+
+  assert.equal(maxActive, 2, "bounded by concurrency limit");
 });

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { trpc } from "@/lib/trpc/client";
-import { runSequentialSummaries } from "@/lib/report-backfill";
+import { runBatchSummaries } from "@/lib/report-backfill";
 import {
   Calculator,
   Check,
@@ -53,9 +53,9 @@ export function ReportsTab({ interviewId }: { interviewId: string }) {
     runningRef.current = true;
     setProgress({ done: 0, failed: 0, total: pending.length, current: null });
     try {
-      const { failed } = await runSequentialSummaries(
+      const { failed } = await runBatchSummaries(
         pending.map((r) => ({ sessionId: r.sessionId, name: r.name })),
-        { onProgress: setProgress },
+        { concurrency: 5, onProgress: setProgress },
       );
       if (failed > 0) {
         toast({
@@ -181,8 +181,8 @@ export function ReportsTab({ interviewId }: { interviewId: string }) {
                 {pending.length} completed session{pending.length > 1 ? "s" : ""} not scored yet
               </p>
               <p className="text-xs text-muted-foreground">
-                Runs one-by-one, oldest pending first. Keep this tab open until
-                it finishes.
+                Runs 5 at a time, oldest pending first. Keep this tab open
+                until it finishes.
               </p>
             </div>
             <Button onClick={handleBackfill} disabled={progress !== null}>

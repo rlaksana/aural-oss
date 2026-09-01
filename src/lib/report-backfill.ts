@@ -1,7 +1,9 @@
 /**
- * Sequentially backfills AI summaries for completed sessions that lack scores.
- * Runs strictly one request at a time (no parallelism) and continues past
- * individual failures so one bad transcript doesn't stall the whole batch.
+ * Backfills AI summaries for completed sessions that lack scores, running a
+ * bounded pool of concurrent requests. A shared cursor hands each worker the
+ * next pending session the moment it frees up, so uneven LLM latencies never
+ * leave slots idle. Continues past individual failures so one bad transcript
+ * doesn't stall the batch.
  */
 export type BackfillProgress = {
   done: number;
@@ -10,43 +12,55 @@ export type BackfillProgress = {
   current: string | null;
 };
 
-export async function runSequentialSummaries(
+const DEFAULT_CONCURRENCY = 5;
+
+export async function runBatchSummaries(
   sessions: { sessionId: string; name: string }[],
   opts: {
+    concurrency?: number;
     onProgress?: (p: BackfillProgress) => void;
     fetchImpl?: typeof fetch;
   } = {},
 ): Promise<{ done: number; failed: number }> {
   const fetchImpl = opts.fetchImpl ?? fetch;
+  const limit = Math.max(
+    1,
+    Math.min(opts.concurrency ?? DEFAULT_CONCURRENCY, sessions.length),
+  );
+  let cursor = 0;
   let done = 0;
   let failed = 0;
+  let completions = 0;
 
-  for (const [i, { sessionId, name }] of sessions.entries()) {
-    // Throttle UI ticks — each onProgress triggers a React re-render of the
-    // 300+ row report; emitting every 5 items keeps the DOM quiet while the
-    // loop is still making forward progress in the background.
-    if (i % 5 === 0) {
-      opts.onProgress?.({ done, failed, total: sessions.length, current: name });
-    }
-    try {
-      const res = await fetchImpl("/api/ai/summarize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, skipExisting: true }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      done += 1;
-    } catch {
-      failed += 1;
-    }
-  }
-  // Always emit the final tick so the UI shows the real total on completion.
-  opts.onProgress?.({
-    done,
-    failed,
-    total: sessions.length,
-    current: null,
-  });
+  const tick = (current: string | null) => {
+    opts.onProgress?.({ done, failed, total: sessions.length, current });
+  };
 
+  const worker = async () => {
+    for (;;) {
+      // Single-threaded JS: claim the next index synchronously, then await.
+      const i = cursor;
+      if (i >= sessions.length) return;
+      cursor += 1;
+      const { sessionId } = sessions[i];
+      try {
+        const res = await fetchImpl("/api/ai/summarize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, skipExisting: true }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        done += 1;
+      } catch {
+        failed += 1;
+      }
+      completions += 1;
+      // Throttle UI ticks — each onProgress re-renders the 300+ row report.
+      if (completions % 5 === 0 || cursor >= sessions.length) tick(null);
+    }
+  };
+
+  await Promise.all(Array.from({ length: limit }, worker));
+  tick(null);
   return { done, failed };
 }
