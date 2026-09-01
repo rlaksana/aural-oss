@@ -75,4 +75,7 @@ npm run lint                                   # Lint must be clean
 npm run test:web                               # Tests must pass (pre-existing failures documented separately)
 git pull --rebase origin main                  # Resolve conflicts before pushing
 git push origin main                           # Push when ready
+git push deploy main                           # ALWAYS mirror to deploy remote — must never diverge from origin/main
 ```
+
+**Dual-remote rule:** `origin` (aural-oss) and `deploy` (aural-deploy) must always point to the same commit on `main`. Every push to `origin` must be immediately followed by a push to `deploy`. Vercel deployments are CLI-driven (`vercel --prod`), not git-triggered, so the `deploy` remote is a mirror only — but it must never fall behind.
