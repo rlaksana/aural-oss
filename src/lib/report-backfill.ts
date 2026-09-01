@@ -21,8 +21,13 @@ export async function runSequentialSummaries(
   let done = 0;
   let failed = 0;
 
-  for (const { sessionId, name } of sessions) {
-    opts.onProgress?.({ done, failed, total: sessions.length, current: name });
+  for (const [i, { sessionId, name }] of sessions.entries()) {
+    // Throttle UI ticks — each onProgress triggers a React re-render of the
+    // 300+ row report; emitting every 5 items keeps the DOM quiet while the
+    // loop is still making forward progress in the background.
+    if (i % 5 === 0) {
+      opts.onProgress?.({ done, failed, total: sessions.length, current: name });
+    }
     try {
       const res = await fetchImpl("/api/ai/summarize", {
         method: "POST",
@@ -34,8 +39,14 @@ export async function runSequentialSummaries(
     } catch {
       failed += 1;
     }
-    opts.onProgress?.({ done, failed, total: sessions.length, current: name });
   }
+  // Always emit the final tick so the UI shows the real total on completion.
+  opts.onProgress?.({
+    done,
+    failed,
+    total: sessions.length,
+    current: null,
+  });
 
   return { done, failed };
 }

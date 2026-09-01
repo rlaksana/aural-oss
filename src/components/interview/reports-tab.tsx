@@ -38,7 +38,10 @@ export function ReportsTab({ interviewId }: { interviewId: string }) {
 
   const report = trpc.report.get.useQuery(
     { interviewId },
-    { refetchInterval: REFRESH_MS },
+    // Suspend the 30s auto-refetch while a backfill run is active — the loop
+    // already invalidates at the end, and table re-renders each tick were
+    // perceptible as input lag on big interview rosters.
+    { refetchInterval: progress === null ? REFRESH_MS : false },
   );
 
   const pending = (report.data?.report.rows ?? []).filter(
