@@ -439,9 +439,9 @@ export function ChatInterface({
     prevQuestionRef.current = newIdx;
   }, [currentQuestion, isCodingQuestion, isWhiteboardQuestion]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Initialize: get AI greeting (skip when resuming with existing messages)
+  // Choice questions are already rendered by the UI; wait for a selection.
   useEffect(() => {
-    if (preview || initialMessages?.length) return;
+    if (preview || initialMessages?.length || isSingleChoiceQuestion || isMultipleChoiceQuestion) return;
     if (greetingStartedRef.current || aiGreetingRequested.has(sessionId)) return;
     greetingStartedRef.current = true;
     aiGreetingRequested.add(sessionId);

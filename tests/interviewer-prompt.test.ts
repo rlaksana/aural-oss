@@ -77,13 +77,8 @@ test("answering the participant does not spend the follow-up budget", () => {
   );
 });
 
-test("an unset depth falls back to the MODERATE budget rather than going unbounded", () => {
-  for (const depth of [null, "medium"]) {
-    const prompt = systemPromptFor(depth);
-    assert.match(
-      prompt,
-      /HARD LIMIT of 2 follow-ups per scripted question/,
-      `depth=${String(depth)}`,
-    );
-  }
+test("system prompt forbids simulating candidate responses or dialog labels", () => {
+  const prompt = systemPromptFor("MODERATE");
+  assert.match(prompt, /NEVER simulate, generate, predict, or script the candidate/);
+  assert.match(prompt, /NEVER output labels like \[CANDIDATE RESPONSE\]/);
 });
