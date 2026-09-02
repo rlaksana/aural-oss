@@ -53,6 +53,32 @@ test("parseQuestionsResponseSchema fixes misclassified options to choice types",
   }
 });
 
+test("parseQuestionsResponseSchema accepts optional criteria and defaults description", () => {
+  const raw = {
+    title: "System Consultant",
+    questions: [{ text: "Q1", type: "OPEN_ENDED" }],
+    criteria: [
+      { name: "HR & Payroll Functional Knowledge", description: "Covers questions 1-3" },
+      { name: "Process Mapping" },
+    ],
+  };
+
+  const parsed = parseQuestionsResponseSchema.safeParse(raw);
+  assert.equal(parsed.success, true);
+  if (parsed.success) {
+    assert.equal(parsed.data.criteria?.length, 2);
+    assert.equal(parsed.data.criteria?.[0].name, "HR & Payroll Functional Knowledge");
+    assert.equal(parsed.data.criteria?.[1].description, "");
+  }
+});
+
+test("parseQuestionsResponseSchema stays valid without criteria (backward compat)", () => {
+  const raw = {
+    questions: [{ text: "Q1", type: "OPEN_ENDED" }],
+  };
+  assert.equal(parseQuestionsResponseSchema.safeParse(raw).success, true);
+});
+
 test("parseQuestionsRequestSchema validates bounds", () => {
   assert.equal(parseQuestionsRequestSchema.safeParse({ text: "too short" }).success, false);
   assert.equal(parseQuestionsRequestSchema.safeParse({ text: "This is a long enough text to parse questions from." }).success, true);

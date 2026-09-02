@@ -53,10 +53,16 @@ export const parsedQuestionSchema = z
     };
   });
 
+export const parsedCriterionSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().default(""),
+});
+
 export const parseQuestionsResponseSchema = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
   questions: z.array(parsedQuestionSchema).min(1).max(100),
+  criteria: z.array(parsedCriterionSchema).max(10).optional(),
 });
 
 export const parseQuestionsRequestSchema = z.object({
@@ -65,3 +71,4 @@ export const parseQuestionsRequestSchema = z.object({
 });
 
 export type ParsedQuestionExtracted = z.infer<typeof parsedQuestionSchema>;
+export type ParsedCriterionExtracted = z.infer<typeof parsedCriterionSchema>;

@@ -466,7 +466,7 @@ export function AIGenerator({ projectId }: { projectId?: string } = {}) {
       const reader = response.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let parsedData: { title?: string; description?: string; questions: GeneratedQuestion[] } | null = null;
+      let parsedData: { title?: string; description?: string; questions: GeneratedQuestion[]; criteria?: { name: string; description: string }[] } | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -494,15 +494,19 @@ export function AIGenerator({ projectId }: { projectId?: string } = {}) {
         throw new Error("No questions extracted");
       }
 
+      const criteria = parsedData.criteria && parsedData.criteria.length > 0
+        ? parsedData.criteria.map((c) => ({ name: c.name, description: c.description || c.name }))
+        : [
+            { name: "Technical Competency", description: "Evaluates overall technical capability from extracted questions" },
+            { name: "Communication Skills", description: "Evaluates clarity and depth of answers" },
+          ];
+
       // Populate draft result directly
       const newInterviewResult: GeneratedInterview = {
         title: parsedData.title || "Extracted Interview",
         description: parsedData.description || "Interview questions extracted from document",
         objective: "Assess candidate based on extracted question set",
-        assessmentCriteria: [
-          { name: "Technical Competency", description: "Evaluates overall technical capability from extracted questions" },
-          { name: "Communication Skills", description: "Evaluates clarity and depth of answers" },
-        ],
+        assessmentCriteria: criteria,
         estimatedDurationMinutes: Math.max(15, parsedData.questions.length * 4),
         questions: parsedData.questions,
         recommendedSettings: { aiName: "Aural" },

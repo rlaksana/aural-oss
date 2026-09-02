@@ -58,6 +58,12 @@ For each question:
 5. If the document has a main title or topic, extract it as "title".
 6. If the document has an overall summary or description, extract it as "description".
 
+ASSESSMENT CRITERIA SECTION:
+If the text contains an assessment criteria section (e.g. "ASSESSMENT CRITERIA", "Kriteria Penilaian", "EVALUATION CRITERIA"), extract each criterion into "criteria":
+1. "name" = the criterion title (e.g. "HR & Payroll Functional Knowledge").
+2. "description" = the criterion's description text. If the criterion lists question numbers (e.g. "Questions: 1, 2, 3"), append the mapping to the description, e.g. "Evaluates ... (Questions 1-3)".
+Do NOT turn criteria entries into questions.
+
 CRITICAL — CHOICE QUESTION FORMAT:
 When the text contains a question followed by a list of lettered choices, those choices are OPTIONS of ONE question, NOT separate questions. Detect these markers:
 - Bullet lists starting with "* A.", "* B.", "* a.", "* b.", "- A.", "- a.", "A.", "a."
@@ -117,6 +123,9 @@ OUTPUT FORMAT (JSON only, no markdown wrappers):
       "options": { "options": ["Option A text", "Option B text"], "allowMultiple": false } | null,
       "starterCode": { "language": "string", "code": "string" } | null
     }
+  ],
+  "criteria": [
+    { "name": "string (criterion title)", "description": "string (criterion description, including question-number mapping)" }
   ]
 }`,
     },
