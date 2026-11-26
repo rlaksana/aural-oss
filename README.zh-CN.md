@@ -183,7 +183,7 @@ Aural 是一个可自主执行结构化访谈的 AI 平台。创建访谈并分�
 | 数据库 | [Supabase](https://supabase.com/)（PostgreSQL、Auth、Storage、RLS） |
 | API | [tRPC](https://trpc.io/) |
 | AI / LLM | OpenRouter — 主模型 `minimax/minimax-m3.1-flash`，回退/修复 `tencent/hy4-flash` |
-| 语音 | WebSocket 中继服务（OpenRouter：`openai/whisper-1` ASR + `minimax/speech-2.8-turbo` TTS） |
+| 语音 | WebSocket 中继服务（OpenRouter：`openai/whisper-large-v3-turbo` ASR + `minimax/speech-2.8-turbo` TTS） |
 | UI | [Tailwind CSS](https://tailwindcss.com/) + [shadcn/ui](https://ui.shadcn.com/) + [Radix](https://radix-ui.com/) |
 | 代码编辑器 | [Monaco Editor](https://microsoft.github.io/monaco-editor/) |
 | 白板 | [Excalidraw](https://excalidraw.com/) |
@@ -374,7 +374,7 @@ aural-oss/
 
 Aural 通过单一独立 WebSocket 服务（`server/voice-relay.ts`）支持实时 AI 语音访谈。ASR、面试官回复和 TTS 全部经 OpenRouter（`server/voice-audio.ts`、`server/relay-llm.ts`）：
 
-- **ASR** — 本地 VAD 缓冲麦克风音频（RMS 门限 + 静音窗口），每段话语调用一次 `POST /audio/transcriptions` 转写（`openai/whisper-1`）。
+- **ASR** — 本地 VAD 缓冲麦克风音频（RMS 门限 + 静音窗口），每段话语调用一次 `POST /audio/transcriptions` 转写（`openai/whisper-large-v3-turbo`）。
 - **LLM** — 面试官回复和逐题上下文摘要运行在 `minimax/minimax-m3.1-flash` 上，`tencent/hy4-flash` 作为传输层回退。
 - **TTS** — 回复通过 `POST /audio/speech` 合成（`minimax/speech-2.8-turbo`，原始 PCM），以 24 kHz PCM 流式发送给浏览器。
 
@@ -387,7 +387,7 @@ npm run dev:voice          # 默认端口 8766
 可选变量：
 
 - `OPENROUTER_BASE_URL`（默认 `https://openrouter.ai/api/v1`）
-- `VOICE_ASR_MODEL`（默认 `openai/whisper-1`）
+- `VOICE_ASR_MODEL`（默认 `openai/whisper-large-v3-turbo`）
 - `VOICE_TTS_MODEL`（默认 `minimax/speech-2.8-turbo`）
 - `VOICE_TTS_VOICE_EN`（默认 `English_Trustworth_Man`）
 - `VOICE_TTS_VOICE_ZH`（默认 `male-qn-qingse`）

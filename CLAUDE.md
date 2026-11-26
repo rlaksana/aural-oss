@@ -8,7 +8,7 @@ Open-source AI interview platform supporting Voice, Chat, and Video.
 - **API Layer**: tRPC v10 (`src/server/routers/`) + Next.js App Router API Routes (`src/app/api/`)
 - **Database**: Supabase PostgreSQL (`supabase/migrations/`)
 - **AI Infrastructure**: Text-LLM primary is **OpenRouter** (`src/lib/ai/providers/openrouter.ts`, env `OPENROUTER_API_KEY`, endpoint `https://openrouter.ai/api/v1`) with model `minimax/minimax-m3.1-flash` for generate/refine/parse/summary/analysis/prep AND the live-interviewer chat route (`src/app/api/ai/chat`, `getProvider("openrouter")`, since 2026-11-26 — the retired Z.AI GLM Coding Plan and the old LiteLLM gateway, which rejects datacenter IPs incl. Vercel's with a ~35s timeout, are both dormant: no route resolves to them). Model fallback on failure: `tencent/hy4-flash` (same provider); malformed structured output is repaired deterministically then via OpenRouter repair calls (`tencent/hy4-flash`, `src/lib/ai/repair.ts`) — never a blind re-run. Reasoning depth: MiniMax M3.1 cannot disable reasoning and its reasoning tokens share `max_tokens` (measured ~30–80 at "low", ~130+ at "high" — enough to truncate or empty a 150–700-token call), so `reasoningParams` defaults every caller to `reasoningEffort: "low"` (mapped to OpenRouter's `reasoning.effort`) unless the caller raises it. Gateway env (`AI_BASE_URL`/`AI_MODEL`/`AI_API_KEY`) and `ZAI_API_KEY` are dormant. The OpenRouter client uses a 180s timeout with 3 SDK retries (the 60s streaming header watchdog survives only in the dormant zai/litellm providers). **No batch window, no queue (since 2026-11-04):** every AI route executes immediately — the old 17:00–07:00 WIB window (`ai-window.ts`), the `ai_jobs` queue + `/api/cron/ai-jobs` drainer, and the compose `ai-drain` sidecar were removed. Post-session summaries run inline via `after()` (`src/lib/ai/session-summary.ts`) on routes carrying `export const maxDuration = 300` (Fluid compute Hobby ceiling — without it serverless functions die at the 60s default mid-LLM-call, the 2026-10/11 lost-summaries incident). The `ai_jobs` table/`claim_ai_jobs` RPC remain in the DB but unused. `MINIMAX_API_KEY` is no longer read by any route (the direct MiniMax provider stays registered but unreachable)
-- **Voice Relay**: Standalone Node.js WebSocket server (`server/voice-relay.ts`); ASR (`openai/whisper-1`) and TTS (`minimax/speech-2.8-turbo`) call OpenRouter's `/audio/*` endpoints through `server/voice-audio.ts` with `OPENROUTER_API_KEY`; browser uplink/downlink audio frames unchanged
+- **Voice Relay**: Standalone Node.js WebSocket server (`server/voice-relay.ts`); ASR (`openai/whisper-large-v3-turbo`) and TTS (`minimax/speech-2.8-turbo`) call OpenRouter's `/audio/*` endpoints through `server/voice-audio.ts` with `OPENROUTER_API_KEY`; browser uplink/downlink audio frames unchanged
 
 ## Essential Commands
 
@@ -90,12 +90,13 @@ git push origin main                           # Push when ready
 git push deploy main                           # ALWAYS mirror to deploy remote — must never diverge from origin/main
 ```
 
-**Deploy pipelines** (run only after the push steps above; both require a clean `main` synced with `origin/main`):
+**Deploy pipeline (Vercel is the only valid/active deployment target):**
 
 ```bash
-npm run deploy:vercel                              # Vercel production via CLI
-AURAL_DEPLOY_HOST=user@vps npm run deploy:docker   # remote compose stack (git pull + compose up --build)
+npm run deploy:vercel   # Vercel production via CLI — fallback when the Git-Integration deploy doesn't appear
 ```
+
+The old VPS/Docker path (`deploy:docker`, `.github/workflows/deploy.yml`, `DEPLOY.md`) is retired: pending, never continued — do not revive or reference it.
 
 **Dual-remote rule:** `origin` (aural-oss) and `deploy` (aural-deploy) must always point to the same commit on `main`. Every push to `origin` must be immediately followed by a push to `deploy`. Pushing to `origin/main` fires the `Mirror main to deploy` GitHub Action, which mirrors the commit to `rlaksana/aural-deploy`; that repo's Vercel Git Integration then auto-deploys to Production (~2–4 minutes after push — deployments created this way carry the `-git-main-` alias). `npm run deploy:vercel` remains the manual CLI path (local gates first) and is the fallback when no new Vercel deployment appears within ~5 minutes of a push. Verify the Git-Integration deployment reached Ready with `node scripts/verify-deploy.mjs` (optionally `--since <seconds>`; it selects by creation time + production target + state, never by name substring).
 

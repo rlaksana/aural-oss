@@ -25,8 +25,7 @@
     "test:functional": "node --import tsx --test --test-concurrency=1 tests/functional.test.ts",
     "db:types": "npx supabase gen types typescript --local > src/lib/supabase/types.ts",
     "dev:voice": "npx tsx server/voice-relay.ts",
-    "deploy:vercel": "node scripts/deploy.mjs vercel",
-    "deploy:docker": "node scripts/deploy.mjs docker"
+    "deploy:vercel": "node scripts/deploy.mjs vercel"
   },
   "dependencies": {
     "@excalidraw/excalidraw": "^0.18.1",

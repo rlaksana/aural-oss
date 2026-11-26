@@ -1,19 +1,14 @@
 #!/usr/bin/env node
-// Official deploy pipelines for Aural.
+// Official deploy pipeline for Aural (Vercel production only).
 //
 //   npm run deploy:vercel
-//   AURAL_DEPLOY_HOST=user@vps npm run deploy:docker
 //
-// Docker options:
-//   AURAL_DEPLOY_DIR   repo path on the server (default /opt/aural)
-//   AURAL_DEPLOY_URL   post-deploy health check (e.g. https://your-domain)
-//
-// Gates for both paths: branch main, clean working tree, local HEAD == origin/main.
+// Gates: branch main, clean working tree, local HEAD == origin/main.
 // Deploying exactly origin/main means the commit already passed CI (lint, tsc, tests, build).
 import { execSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
-const TARGETS = ["vercel", "docker"];
+const TARGETS = ["vercel"];
 const target = process.argv[2];
 
 function run(cmd) {
@@ -28,7 +23,7 @@ function die(msg) {
 if (!TARGETS.includes(target)) {
   console.error(
     `Usage: node scripts/deploy.mjs <${TARGETS.join("|")}>\n` +
-      "  or: npm run deploy:vercel / npm run deploy:docker",
+      "  or: npm run deploy:vercel",
   );
   process.exit(1);
 }
@@ -90,53 +85,28 @@ async function verifyProductionDeploy(startedAt) {
   return undefined;
 }
 
-if (target === "vercel") {
-  // Production env vars live in the linked Vercel project (.vercel/project.json).
-  const startedAt = Date.now();
-  const r = spawnSync("npx", ["vercel", "--prod"], {
-    stdio: "inherit",
-    shell: process.platform === "win32",
-  });
-  if (r.status !== 0) {
-    console.error(
-      "vercel CLI exited non-zero - verifying actual deployment state before reporting failure",
-    );
-    const d = await verifyProductionDeploy(startedAt);
-    if (d) {
-      console.log(
-        `deployed to Vercel production (CLI false negative): https://${d.url}`,
-      );
-      process.exit(0);
-    }
-    if (d === undefined) {
-      die(
-        "deployment still building after 6m - check the Vercel dashboard before retrying",
-      );
-    }
-    die("vercel deploy failed (deployment state is ERROR)");
-  }
-  console.log("deployed to Vercel production");
-} else {
-  const host = process.env.AURAL_DEPLOY_HOST;
-  if (!host) {
-    die("set AURAL_DEPLOY_HOST=user@vps (ssh target of the server running the compose stack)");
-  }
-  const dir = process.env.AURAL_DEPLOY_DIR ?? "/opt/aural";
-  // The server pulls from the public origin and rebuilds; its .env is managed there.
-  const r = spawnSync(
-    "ssh",
-    [host, `cd ${dir} && git pull --rebase && docker compose up -d --build`],
-    { stdio: "inherit" },
+// Production env vars live in the linked Vercel project (.vercel/project.json).
+const startedAt = Date.now();
+const r = spawnSync("npx", ["vercel", "--prod"], {
+  stdio: "inherit",
+  shell: process.platform === "win32",
+});
+if (r.status !== 0) {
+  console.error(
+    "vercel CLI exited non-zero - verifying actual deployment state before reporting failure",
   );
-  if (r.status !== 0) die("remote docker deploy failed");
-  console.log(`docker stack updated on ${host}`);
-
-  const url = process.env.AURAL_DEPLOY_URL;
-  if (url) {
-    const res = await fetch(url).catch(() => null);
-    if (!res || !res.ok) {
-      die(`deployed, but health check failed for ${url} - inspect the stack before treating this as done`);
-    }
-    console.log(`health check ${url} -> ${res.status}`);
+  const d = await verifyProductionDeploy(startedAt);
+  if (d) {
+    console.log(
+      `deployed to Vercel production (CLI false negative): https://${d.url}`,
+    );
+    process.exit(0);
   }
+  if (d === undefined) {
+    die(
+      "deployment still building after 6m - check the Vercel dashboard before retrying",
+    );
+  }
+  die("vercel deploy failed (deployment state is ERROR)");
 }
+console.log("deployed to Vercel production");

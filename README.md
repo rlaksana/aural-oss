@@ -277,7 +277,7 @@ Track all your interviews, sessions, and candidates from a unified dashboard. Or
 | Database | [Supabase](https://supabase.com/) (PostgreSQL + Auth + Storage + RLS) |
 | API | [tRPC](https://trpc.io/) |
 | AI / LLM | OpenRouter — `minimax/minimax-m3.1-flash` primary, `tencent/hy4-flash` fallback/repair |
-| Voice | WebSocket relay server (OpenRouter: `openai/whisper-1` ASR + `minimax/speech-2.8-turbo` TTS) |
+| Voice | WebSocket relay server (OpenRouter: `openai/whisper-large-v3-turbo` ASR + `minimax/speech-2.8-turbo` TTS) |
 | UI | [Tailwind CSS](https://tailwindcss.com/) + [shadcn/ui](https://ui.shadcn.com/) + [Radix](https://radix-ui.com/) |
 | Code Editor | [Monaco Editor](https://microsoft.github.io/monaco-editor/) |
 | Whiteboard | [Excalidraw](https://excalidraw.com/) |
@@ -442,31 +442,15 @@ npm run dev:voice
 
 Open [http://localhost:3000/login](http://localhost:3000/login) to sign in, or [http://localhost:3000/register](http://localhost:3000/register) to create a new account.
 
-#### 6. Production via Docker (web + voice relay + Caddy)
+#### 6. Production deploy
 
-One image runs both processes; `docker-compose.yml` wires the Next.js web app, the voice relay, and a Caddy reverse proxy (automatic HTTPS + WebSocket `/ws/voice` → relay).
-
-1. On a VPS (Ubuntu, ≥ 2 GB RAM): install Docker (`curl -fsSL https://get.docker.com | sh`), open ports 22/80/443.
-2. Clone the repo, then `cp .env.example .env` and fill in: Supabase URL/keys (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`), `OPENROUTER_API_KEY`, `NEXT_PUBLIC_APP_URL=https://your-domain`, and `DOMAIN=your-domain` (used by the Caddyfile). Leave `NEXT_PUBLIC_VOICE_RELAY_URL` unset — the browser client auto-connects to `wss://<host>/ws/voice`.
-3. Point a DNS A record for `your-domain` at the VPS IP.
-4. Build and start:
+Pushing to `main` is the production deploy: the `Mirror main to deploy` GitHub Action mirrors the commit to the deployment repo, whose Vercel Git Integration then builds it for Production. A scripted path exists for the cases where the integration does not pick the commit up:
 
 ```bash
-docker compose up -d --build
+npm run deploy:vercel   # Vercel production via CLI (linked project)
 ```
 
-Verify: `docker compose ps` (all three services up), `curl -I https://your-domain` (valid TLS), then run a voice interview end-to-end. Supabase migrations and the `recordings` Storage bucket must exist in the target Supabase project before use (steps 2–3 above).
-
-#### Official deploy pipelines
-
-Two scripted paths deploy exactly `origin/main` (CI has already validated that commit). Gates: branch `main`, clean working tree, local HEAD == `origin/main`.
-
-```bash
-npm run deploy:vercel                              # Vercel production via CLI (linked project)
-AURAL_DEPLOY_HOST=user@vps npm run deploy:docker   # remote compose stack: git pull + compose up -d --build
-```
-
-Docker extras: `AURAL_DEPLOY_DIR` (repo path on the server, default `/opt/aural`), `AURAL_DEPLOY_URL` (post-deploy health check, e.g. `https://your-domain`).
+Gates: branch `main`, clean working tree, local HEAD == `origin/main`.
 
 ---
 
@@ -540,7 +524,7 @@ Aural runs all text LLM tasks on a single primary model: **`minimax/minimax-m3.1
 | **Practice coaching** | Scores practice answers, streams feedback, generates follow-up coaching, and suggests improved answers | `minimax/minimax-m3.1-flash` |
 | **Report & analysis** | Generates post-interview reports with per-question scores, highlights, and improvement areas | `minimax/minimax-m3.1-flash` |
 
-Interview generation, practice coaching, resume parsing and the voice-relay text LLM (interviewer replies, summarization) all run on OpenRouter: primary `minimax/minimax-m3.1-flash`, fallback and structured-output repair `tencent/hy4-flash`. Only `OPENROUTER_API_KEY` is required — text, voice ASR (`openai/whisper-1`) and voice TTS (`minimax/speech-2.8-turbo`) all ride on it.
+Interview generation, practice coaching, resume parsing and the voice-relay text LLM (interviewer replies, summarization) all run on OpenRouter: primary `minimax/minimax-m3.1-flash`, fallback and structured-output repair `tencent/hy4-flash`. Only `OPENROUTER_API_KEY` is required — text, voice ASR (`openai/whisper-large-v3-turbo`) and voice TTS (`minimax/speech-2.8-turbo`) all ride on it.
 
 ---
 
@@ -548,7 +532,7 @@ Interview generation, practice coaching, resume parsing and the voice-relay text
 
 Aural supports real-time AI voice interviews via a single WebSocket relay server (`server/voice-relay.ts`). ASR, interviewer replies and TTS all go through OpenRouter (`server/voice-audio.ts`, `server/relay-llm.ts`).
 
-- **ASR** — mic audio is VAD-buffered locally (RMS gate + silence window) and each utterance is transcribed with one `POST /audio/transcriptions` call (`openai/whisper-1`).
+- **ASR** — mic audio is VAD-buffered locally (RMS gate + silence window) and each utterance is transcribed with one `POST /audio/transcriptions` call (`openai/whisper-large-v3-turbo`).
 - **LLM** — interviewer replies and per-question context summarization run on `minimax/minimax-m3.1-flash`, with `tencent/hy4-flash` as the transport fallback.
 - **TTS** — replies are synthesized with `POST /audio/speech` (`minimax/speech-2.8-turbo`, raw PCM) and streamed to the browser as 24 kHz PCM.
 
@@ -561,7 +545,7 @@ npm run dev:voice          # starts on port 8766
 **Optional env vars:**
 
 - `OPENROUTER_BASE_URL` (default `https://openrouter.ai/api/v1`)
-- `VOICE_ASR_MODEL` (default `openai/whisper-1`)
+- `VOICE_ASR_MODEL` (default `openai/whisper-large-v3-turbo`)
 - `VOICE_TTS_MODEL` (default `minimax/speech-2.8-turbo`)
 - `VOICE_TTS_VOICE_EN` (default `English_Trustworth_Man`)
 - `VOICE_TTS_VOICE_ZH` (default `male-qn-qingse`)
