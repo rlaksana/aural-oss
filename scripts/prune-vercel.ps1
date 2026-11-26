@@ -33,7 +33,8 @@ $targets = $rows |
 
 Log ("prune: keeping {0}; {1} to delete" -f $keeper.Id, @($targets).Count)
 foreach ($u in $targets) {
-  npx --yes vercel rm $u --yes 2>&1 | Out-Null
+  # --confirm-name is required by the CLI's destructive-action gate (2026-11-26).
+  npx --yes vercel rm $u --yes --confirm-name $u 2>&1 | Out-Null
   if ($LASTEXITCODE -eq 0) { Log "deleted $u" } else { Log "FAILED $u" }
   Start-Sleep -Seconds 1
 }
