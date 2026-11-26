@@ -1,4 +1,4 @@
-import { getProvider } from "@/lib/ai/registry";
+import { getProvider, PRIMARY_TEXT_MODEL } from "@/lib/ai/registry";
 import { getAuthUser } from "@/lib/auth";
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api/ai/parse-resume");
@@ -29,8 +29,8 @@ Rules:
 - Extract ALL contact info including email and phone carefully
 - Return ONLY the JSON object, no markdown fences, no explanation`;
 
-// Resume parsing runs on the Z.AI GLM Coding Plan like every other text-LLM
-// route — the old gateway env (AI_BASE_URL/AI_MODEL/AI_API_KEY) is dormant.
+// Resume parsing runs on OpenRouter (MiniMax M3.1 Flash) like every other
+// text-LLM route — the old gateway env (AI_BASE_URL/AI_MODEL/AI_API_KEY) is dormant.
 export async function POST(req: Request) {
   try {
     const user = await getAuthUser();
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const provider = getProvider("zai");
+    const provider = getProvider("openrouter");
 
     // Stream the LLM response via SSE
     const stream = provider.streamResponse({
@@ -78,6 +78,7 @@ export async function POST(req: Request) {
       ],
       temperature: 0.1,
       maxTokens: 1024,
+      model: PRIMARY_TEXT_MODEL,
     });
 
     const encoder = new TextEncoder();

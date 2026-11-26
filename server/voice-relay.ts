@@ -2,14 +2,14 @@
  * WebSocket relay server using MiniMax voice services.
  *
  * Browser ←→ this relay ←→ MiniMax ASR (one-shot speech_to_text per utterance)
- *                         ←→ MiniMax TTS (sync t2a_v2)
- *                         ←→ MiniMax-M3.1-Flash-Preview LLM (response generation)
+ *                         ←→ OpenRouter TTS (minimax/speech-2.8-turbo)
+ *                         ←→ MiniMax-M3.1-Flash via OpenRouter (response generation)
  *
  * Architecture:
  *   - Endpointing is local: mic audio is VAD-buffered (RMS gate + silence
- *     window) and transcribed with one POST per utterance (minimax-voice.ts).
+ *     window) and transcribed with one POST per utterance (voice-audio.ts).
  *   - TTS synthesizes the full line, then streams the PCM to the browser.
- *   - Chat intelligence via MiniMax-M3.1-Flash-Preview (unchanged).
+ *   - Chat intelligence via MiniMax-M3.1-Flash (OpenRouter).
  *
  * Key features:
  * - Per-question interview flow with LLM-powered context summarization
@@ -27,10 +27,10 @@ import { bt, getLanguageKey, ROLE_LABELS, type LangKey } from "../src/lib/i18n";
 import { createLogger } from "../src/lib/logger";
 import { callRelayLLM, logRelayLlmStartup } from "./relay-llm";
 import {
-    resolveMiniMaxVoiceConfig,
+    resolveVoiceAudioConfig,
     synthesizePcm,
     transcribePcm,
-} from "./minimax-voice";
+} from "./voice-audio";
 import {
     activeSpeechHoldAction,
     asrPendingFinalDelayMs,
@@ -75,7 +75,7 @@ const RELAY_TICKET_SECRET = process.env.VOICE_RELAY_SECRET?.trim() || "";
 
 
 // ASR config — MiniMax one-shot speech_to_text (local VAD endpointing)
-const MINIMAX_VOICE = resolveMiniMaxVoiceConfig();
+const VOICE_AUDIO = resolveVoiceAudioConfig();
 
 /** Silence (ms) before a voiced segment is endpointed and handed to ASR. */
 const ASR_ENDPOINT_MIN_MS = 200;
@@ -166,10 +166,10 @@ const ASR_RECENT_FINAL_REPLAY_MIN_UNITS = 8;
  */
 const SPLIT_NOISE_MIN_PAUSE_AFTER_ASSISTANT_MS = 5500;
 
-// TTS config — MiniMax sync t2a_v2, voices come from MINIMAX_VOICE
+// TTS/ASR config — OpenRouter audio endpoints, voices come from VOICE_AUDIO
 
-if (!MINIMAX_VOICE.apiKey) {
-  log.error("Missing MINIMAX_API_KEY in .env.local (required for MiniMax ASR + TTS)");
+if (!VOICE_AUDIO.apiKey) {
+  log.error("Missing OPENROUTER_API_KEY in .env.local (required for ASR + TTS)");
   process.exit(1);
 }
 
@@ -228,11 +228,12 @@ interface AgentContext {
 
 // ── Vision LLM for whiteboard description ────────────────────────────
 
-const VISION_LLM_API_KEY = process.env.MINIMAX_API_KEY || "";
-const VISION_LLM_BASE_URL = process.env.MINIMAX_BASE_URL || "https://api.minimax.io/v1";
-const VISION_LLM_MODEL = process.env.VISION_LLM_MODEL || "MiniMax-M3.1-Flash-Preview";
+const VISION_LLM_API_KEY = process.env.VISION_LLM_API_KEY || process.env.OPENROUTER_API_KEY || "";
+const VISION_LLM_BASE_URL =
+  process.env.VISION_LLM_BASE_URL || process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
+const VISION_LLM_MODEL = process.env.VISION_LLM_MODEL || "minimax/minimax-m3.1-flash";
 /** Used when the primary model returns empty text after parsing (vision-specific, shorter path to answer). */
-const VISION_LLM_RETRY_MODEL = process.env.VISION_LLM_RETRY_MODEL || "MiniMax-M3.1-Flash-Preview";
+const VISION_LLM_RETRY_MODEL = process.env.VISION_LLM_RETRY_MODEL || "tencent/hy4-flash";
 const VISION_LLM_MAX_TOKENS = 1024;
 const WHITEBOARD_SNAPSHOT_REQUEST_TIMEOUT_MS = 2500;
 const WHITEBOARD_VISION_INLINE_TIMEOUT_MS = 1200;
@@ -695,6 +696,9 @@ function buildFarewellSayHello(lang: LangKey): string {
   return bt(lang, SPOKEN.farewell);
 }
 
+/** Reasoning tokens share max_tokens on OpenRouter, so the summary needs headroom. */
+const SUMMARY_MAX_TOKENS = 500;
+
 async function summarizeQuestion(
   questionText: string,
   transcript: TranscriptEntry[],
@@ -709,7 +713,7 @@ async function summarizeQuestion(
     .join("\n");
 
   try {
-    const result = await callRelayLLM(bt(lang, PROMPTS.summarize(questionText, t)));
+    const result = await callRelayLLM(bt(lang, PROMPTS.summarize(questionText, t)), SUMMARY_MAX_TOKENS);
     log.info(`Q summary: "${result.slice(0, 100)}..."`);
     return result;
   } catch (err) {
@@ -729,10 +733,10 @@ log.info(
     ? "Relay auth: HMAC tickets required"
     : "Relay auth: DISABLED (set VOICE_RELAY_SECRET) — open relay",
 );
-log.info(`ASR: MiniMax one-shot (${MINIMAX_VOICE.baseUrl}), auth=Bearer(${MINIMAX_VOICE.apiKey.slice(0, 8)}...)`);
+log.info(`ASR: ${VOICE_AUDIO.asrModel} @ ${VOICE_AUDIO.baseUrl}, auth=Bearer(${VOICE_AUDIO.apiKey.slice(0, 8)}...)`);
 log.info(`ASR VAD: end_window=${ASR_END_WINDOW_MS}ms, min_speech=${ASR_MIN_SPEECH_MS}ms, rms_threshold=${ASR_AUDIO_ACTIVITY_RMS_THRESHOLD}`);
 log.info(`ASR final coalescing: normal=${ASR_FINAL_COALESCE_MS}ms, long=${ASR_LONG_FINAL_COALESCE_MS}ms, quiet=${ASR_PENDING_FINAL_QUIET_MS}ms, active_speech_hold=${ASR_ACTIVE_SPEECH_HOLD_MS}ms, max_active_hold=${ASR_MAX_ACTIVE_SPEECH_HOLD_MS}ms`);
-log.info(`TTS: MiniMax ${MINIMAX_VOICE.ttsModel} (zh=${MINIMAX_VOICE.voiceZh}, en=${MINIMAX_VOICE.voiceEn}, rate=${MINIMAX_VOICE.speechRate})`);
+log.info(`TTS: ${VOICE_AUDIO.ttsModel} (zh=${VOICE_AUDIO.voiceZh}, en=${VOICE_AUDIO.voiceEn}, rate=${VOICE_AUDIO.speechRate})`);
 if (VISION_LLM_API_KEY) {
   log.info(
     `Vision LLM: ${VISION_LLM_MODEL}${VISION_LLM_RETRY_MODEL !== VISION_LLM_MODEL ? ` (retry: ${VISION_LLM_RETRY_MODEL})` : ""}, max_tokens=${VISION_LLM_MAX_TOKENS}`,
@@ -822,7 +826,7 @@ async function handleMicTestConnection(browserWs: WebSocket, language?: string) 
     // Serialize transcriptions so results can never arrive out of order.
     asrChain = asrChain.then(async () => {
       try {
-        const text = await transcribePcm(pcm, MINIMAX_VOICE, language);
+        const text = await transcribePcm(pcm, VOICE_AUDIO, language);
         if (text && browserWs.readyState === WebSocket.OPEN) {
           browserWs.send(JSON.stringify({ type: "asr_ended", text }));
         }
@@ -1300,7 +1304,7 @@ async function handleBrowserConnection(browserWs: WebSocket, ctx: InterviewConte
       }));
     };
     try {
-      const pcm = await synthesizePcm(text, MINIMAX_VOICE, {
+      const pcm = await synthesizePcm(text, VOICE_AUDIO, {
         language: ctx.language,
         signal: abortController.signal,
       });
@@ -1585,17 +1589,23 @@ async function handleBrowserConnection(browserWs: WebSocket, ctx: InterviewConte
     return agentCtx;
   }
 
+  // The reply budget is what the spoken answer may use; on OpenRouter the
+  // model's reasoning tokens are billed against the same max_tokens (measured
+  // 30-80 at effort "low", more on hard prompts), so pad every tier by that
+  // much or replies get cut mid-sentence.
+  const REASONING_HEADROOM_TOKENS = 350;
+
   function getMaxTokensForQuestion(type: string): number {
     switch (type) {
       case "CODING":
       case "WHITEBOARD":
       case "RESEARCH":
-        return 250;
+        return 250 + REASONING_HEADROOM_TOKENS;
       case "SINGLE_CHOICE":
       case "MULTIPLE_CHOICE":
-        return 200;
+        return 200 + REASONING_HEADROOM_TOKENS;
       default:
-        return 150;
+        return 150 + REASONING_HEADROOM_TOKENS;
     }
   }
 
@@ -2345,7 +2355,7 @@ async function handleBrowserConnection(browserWs: WebSocket, ctx: InterviewConte
       if (interviewDone || browserWs.readyState !== WebSocket.OPEN) return;
       try {
         const startedAt = Date.now();
-        const text = await transcribePcm(pcm, MINIMAX_VOICE, ctx.language);
+        const text = await transcribePcm(pcm, VOICE_AUDIO, ctx.language);
         log.debug(
           `MiniMax ASR ${pcm.length}B -> "${text.slice(0, 60)}" (${Date.now() - startedAt}ms)`,
         );

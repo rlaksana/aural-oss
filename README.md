@@ -276,8 +276,8 @@ Track all your interviews, sessions, and candidates from a unified dashboard. Or
 | Language | TypeScript |
 | Database | [Supabase](https://supabase.com/) (PostgreSQL + Auth + Storage + RLS) |
 | API | [tRPC](https://trpc.io/) |
-| AI / LLM | MiniMax-M3 (`MiniMax-M3` runs every text LLM path) |
-| Voice | WebSocket relay server (MiniMax ASR + MiniMax TTS) |
+| AI / LLM | OpenRouter — `minimax/minimax-m3.1-flash` primary, `tencent/hy4-flash` fallback/repair |
+| Voice | WebSocket relay server (OpenRouter: `openai/whisper-1` ASR + `minimax/speech-2.8-turbo` TTS) |
 | UI | [Tailwind CSS](https://tailwindcss.com/) + [shadcn/ui](https://ui.shadcn.com/) + [Radix](https://radix-ui.com/) |
 | Code Editor | [Monaco Editor](https://microsoft.github.io/monaco-editor/) |
 | Whiteboard | [Excalidraw](https://excalidraw.com/) |
@@ -304,10 +304,10 @@ Track all your interviews, sessions, and candidates from a unified dashboard. Or
 │   Next.js Server       │  │  Voice Relay     │
 │                        │  │  Servers         │
 │  ┌──────────────────┐  │  │  ┌────────────┐  │
-│  │ tRPC Routers     │  │  │  │ MiniMax    │  │
+│  │ tRPC Routers     │  │  │  │ OpenRouter │  │
 │  │ (typed RPC API)  │  │  │  │ ASR + TTS  │  │
 │  ├──────────────────┤  │  │  ├────────────┤  │
-│  │ REST API Routes  │  │  │  │ MiniMax-M3 │  │
+│  │ REST API Routes  │  │  │  │ M3.1 Flash │  │
 │  │ /api/ai/*        │  │  │  │ LLM        │  │
 │  │ /api/voice/*     │  │  │  └────────────┘  │
 │  │ /api/auth/*      │  │  └──────────────────┘
@@ -371,7 +371,7 @@ Run Aural on your own servers for full control over data, configuration, and cus
 
 - **Node.js** 20.9+ and npm
 - **Supabase** project (cloud or local via `supabase start`)
-- **MiniMax API key** — one key (`MINIMAX_API_KEY`) powers every LLM path (MiniMax-M3) plus voice ASR and TTS
+- **OpenRouter API key** — one key (`OPENROUTER_API_KEY`) powers every text LLM path (MiniMax M3.1 Flash primary) plus voice ASR and TTS
 
 #### 1. Clone and Install
 
@@ -418,7 +418,7 @@ cp .env.example .env.local
 Edit `.env.local` with your credentials. At minimum you need:
 
 - Supabase URL and keys
-- `MINIMAX_API_KEY` (required for AI generation, voice interviews, and voice practice)
+- `OPENROUTER_API_KEY` (required for AI generation, voice interviews, and voice practice)
 - Optional `JINA_READER_API_KEY` for higher-rate JD URL imports when a public page blocks direct server-side fetching
 
 **Local Supabase key mapping** — map the keys from `supabase status` output to your `.env.local`:
@@ -447,7 +447,7 @@ Open [http://localhost:3000/login](http://localhost:3000/login) to sign in, or [
 One image runs both processes; `docker-compose.yml` wires the Next.js web app, the voice relay, and a Caddy reverse proxy (automatic HTTPS + WebSocket `/ws/voice` → relay).
 
 1. On a VPS (Ubuntu, ≥ 2 GB RAM): install Docker (`curl -fsSL https://get.docker.com | sh`), open ports 22/80/443.
-2. Clone the repo, then `cp .env.example .env` and fill in: Supabase URL/keys (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`), `MINIMAX_API_KEY`, `NEXT_PUBLIC_APP_URL=https://your-domain`, and `DOMAIN=your-domain` (used by the Caddyfile). Leave `NEXT_PUBLIC_VOICE_RELAY_URL` unset — the browser client auto-connects to `wss://<host>/ws/voice`.
+2. Clone the repo, then `cp .env.example .env` and fill in: Supabase URL/keys (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`), `OPENROUTER_API_KEY`, `NEXT_PUBLIC_APP_URL=https://your-domain`, and `DOMAIN=your-domain` (used by the Caddyfile). Leave `NEXT_PUBLIC_VOICE_RELAY_URL` unset — the browser client auto-connects to `wss://<host>/ws/voice`.
 3. Point a DNS A record for `your-domain` at the VPS IP.
 4. Build and start:
 
@@ -526,45 +526,47 @@ Practice feedback uses the same LLM provider chain as interview generation. Voic
 
 ## AI Provider System
 
-All text LLM paths run on **`MiniMax-M3`** with a single key: `MINIMAX_API_KEY` ([platform.minimax.io](https://platform.minimax.io/)).
+All text LLM paths run on OpenRouter: **`minimax/minimax-m3.1-flash`** primary, **`tencent/hy4-flash`** fallback and structured-output repair. One key: `OPENROUTER_API_KEY` ([openrouter.ai](https://openrouter.ai/)).
 
 ### How LLMs Are Used
 
-Aural runs all text LLM tasks on a single model: **`MiniMax-M3`** (`MINIMAX_API_KEY` required).
+Aural runs all text LLM tasks on a single primary model: **`minimax/minimax-m3.1-flash`** (`OPENROUTER_API_KEY` required).
 
 | Task | What It Does | Model |
 |------|-------------|-------|
-| **Chat interviewing** | Powers the AI interviewer during live sessions — asks questions, generates follow-ups, adapts tone | `MiniMax-M3` |
-| **Interview generation** | Generates a complete interview (questions, criteria, settings) from a plain-language description | `MiniMax-M3` |
-| **Question refinement** | Improves or refines existing interview questions based on feedback | `MiniMax-M3` |
-| **Practice coaching** | Scores practice answers, streams feedback, generates follow-up coaching, and suggests improved answers | `MiniMax-M3` |
-| **Report & analysis** | Generates post-interview reports with per-question scores, highlights, and improvement areas | `MiniMax-M3` |
+| **Chat interviewing** | Powers the AI interviewer during live sessions — asks questions, generates follow-ups, adapts tone | `minimax/minimax-m3.1-flash` |
+| **Interview generation** | Generates a complete interview (questions, criteria, settings) from a plain-language description | `minimax/minimax-m3.1-flash` |
+| **Question refinement** | Improves or refines existing interview questions based on feedback | `minimax/minimax-m3.1-flash` |
+| **Practice coaching** | Scores practice answers, streams feedback, generates follow-up coaching, and suggests improved answers | `minimax/minimax-m3.1-flash` |
+| **Report & analysis** | Generates post-interview reports with per-question scores, highlights, and improvement areas | `minimax/minimax-m3.1-flash` |
 
-Interview generation and practice coaching run through a fallback wrapper; the chain is `MiniMax-M3` end to end. Optionally set `OPENROUTER_API_KEY` to append an OpenRouter resilience fallback (`meta/muse-spark-1.3-contributor`) used when MiniMax output fails parse/validation after retries, including for post-interview report generation. Resume parsing and the voice-relay text LLM (interviewer replies, summarization) use `MiniMax-M3` too. Voice audio uses the dedicated MiniMax speech services (`asr-1.0` for ASR, `speech-2.8-turbo` for TTS) with the same `MINIMAX_API_KEY`.
+Interview generation, practice coaching, resume parsing and the voice-relay text LLM (interviewer replies, summarization) all run on OpenRouter: primary `minimax/minimax-m3.1-flash`, fallback and structured-output repair `tencent/hy4-flash`. Only `OPENROUTER_API_KEY` is required — text, voice ASR (`openai/whisper-1`) and voice TTS (`minimax/speech-2.8-turbo`) all ride on it.
 
 ---
 
 ## Voice Relay
 
-Aural supports real-time AI voice interviews via a single WebSocket relay server (`server/voice-relay.ts`) built entirely on MiniMax speech services.
+Aural supports real-time AI voice interviews via a single WebSocket relay server (`server/voice-relay.ts`). ASR, interviewer replies and TTS all go through OpenRouter (`server/voice-audio.ts`, `server/relay-llm.ts`).
 
-- **ASR** — mic audio is VAD-buffered locally (RMS gate + silence window) and each utterance is transcribed with one one-shot `POST /v1/speech_to_text` call.
-- **LLM** — interviewer replies and per-question context summarization run on `MiniMax-M3`.
-- **TTS** — replies are synthesized with the sync `POST /v1/t2a_v2` API and streamed to the browser as 24 kHz PCM.
+- **ASR** — mic audio is VAD-buffered locally (RMS gate + silence window) and each utterance is transcribed with one `POST /audio/transcriptions` call (`openai/whisper-1`).
+- **LLM** — interviewer replies and per-question context summarization run on `minimax/minimax-m3.1-flash`, with `tencent/hy4-flash` as the transport fallback.
+- **TTS** — replies are synthesized with `POST /audio/speech` (`minimax/speech-2.8-turbo`, raw PCM) and streamed to the browser as 24 kHz PCM.
 
 ```bash
 npm run dev:voice          # starts on port 8766
 ```
 
-**Required env var:** `MINIMAX_API_KEY` (shared with the LLM).
+**Required env var:** `OPENROUTER_API_KEY`.
 
 **Optional env vars:**
 
-- `MINIMAX_BASE_URL` (default `https://api.minimax.io/v1` — the international endpoint)
-- `MINIMAX_TTS_MODEL` (default `speech-2.8-turbo`)
-- `MINIMAX_TTS_VOICE_EN` (default `English_Trustworth_Man`)
-- `MINIMAX_TTS_VOICE_ZH` (default `male-qn-qingse`)
-- `MINIMAX_TTS_SPEECH_RATE` (default `1`, range 0.5–2)
+- `OPENROUTER_BASE_URL` (default `https://openrouter.ai/api/v1`)
+- `VOICE_ASR_MODEL` (default `openai/whisper-1`)
+- `VOICE_TTS_MODEL` (default `minimax/speech-2.8-turbo`)
+- `VOICE_TTS_VOICE_EN` (default `English_Trustworth_Man`)
+- `VOICE_TTS_VOICE_ZH` (default `male-qn-qingse`)
+- `VOICE_TTS_SPEECH_RATE` (default `1`, range 0.5–2)
+- `RELAY_LLM_MODEL` / `RELAY_LLM_FALLBACK_MODEL` / `RELAY_LLM_BASE_URL` to pin a different relay LLM endpoint
 
 ---
 
@@ -636,7 +638,7 @@ curl -X POST http://localhost:3000/api/v1/interviews/{id}/publish \
 | `npm run lint` | Run ESLint |
 | `npm run test:web` | Run web tests |
 | `npm run test:functional` | Run Playwright-backed functional browser tests |
-| `npm run dev:voice` | Start the MiniMax voice relay (ASR + LLM + TTS) |
+| `npm run dev:voice` | Start the voice relay (OpenRouter ASR + LLM + TTS) |
 | `npm run db:types` | Regenerate Supabase TypeScript types |
 
 ---

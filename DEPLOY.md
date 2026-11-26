@@ -30,7 +30,7 @@ Kumpulkan semua item ini **sebelum** mulai. Tanpa item bertanda **(wajib)** depl
 |---|---|---|
 | Supabase project | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` (ambil dari dashboard Supabase → Settings → API) | ✅ |
 | Supabase schema | Project sudah termigrasi (`npx supabase db push` dari workstation) + bucket Storage **`recordings`** sudah dibuat | ✅ |
-| MiniMax API key | `MINIMAX_API_KEY` — dipakai semua LLM + voice ASR/TTS. Relay menolak start tanpa ini | ✅ |
+| OpenRouter API key | `OPENROUTER_API_KEY` — dipakai semua LLM teks + voice ASR/TTS (MiniMax M3.1 Flash primary, tencent/hy4-flash fallback). Relay menolak start tanpa ini | ✅ |
 | Relay auth secret | `VOICE_RELAY_SECRET` — string acak (mis. `openssl rand -hex 32`) di `.env` server. Web app (menerbitkan tiket via `/api/voice/relay-ticket`) dan voice-relay (memverifikasi) membaca variabel yang sama. Tanpa ini relay terbuka bagi siapa pun yang bisa menjangkau `/ws/voice` | ✅ |
 | Akses clone repo | Repo public: `https://github.com/1146345502/aural-oss.git` | ✅ |
 
@@ -82,7 +82,7 @@ SUPABASE_ANON_KEY=<anon-key>
 SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 
 # AI / Voice
-MINIMAX_API_KEY=<minimax-key>
+OPENROUTER_API_KEY=<openrouter-key>
 
 # App + reverse proxy
 NEXT_PUBLIC_APP_URL=https://<domain>
@@ -122,7 +122,7 @@ Uji fungsional dari browser: buka `https://<domain>`, login, jalankan satu inter
 
 | Gejala | Penyebab umum | Perbaikan |
 |---|---|---|
-| `voice-relay` restart terus, log `MINIMAX_API_KEY is required` | Key kosong/salah di `.env` server | Perbaiki `.env`, lalu `docker compose up -d` |
+| `voice-relay` restart terus, log `Missing OPENROUTER_API_KEY` | Key kosong/salah di `.env` server | Perbaiki `.env`, lalu `docker compose up -d` |
 | Caddy tidak menerbitkan sertifikat | DNS belum mengarah / port 80 tertutup | Cek A record + `ufw status`, tunggu beberapa menit |
 | Build gagal `Killed` saat `next build` | RAM kurang | Tambah swap: `fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile`, build ulang |
 | `502` pada `/ws/voice` | `voice-relay` mati | `docker compose logs voice-relay`, perbaiki, `docker compose up -d` |

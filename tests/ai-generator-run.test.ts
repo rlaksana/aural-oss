@@ -43,7 +43,7 @@ async function withEnv(
   }
 }
 
-test("getGeneratorModelChain returns only the GLM primary regardless of other provider keys", () => {
+test("getGeneratorModelChain is primary + fallback once OPENROUTER_API_KEY exists", () => {
   withEnv(
     {
       ZAI_API_KEY: "test-zai",
@@ -52,11 +52,14 @@ test("getGeneratorModelChain returns only the GLM primary regardless of other pr
       GEMINI_API_KEY: "test-gemini",
       KIMI_API_KEY: "test-kimi",
       MINIMAX_API_KEY: "test-minimax",
-      OPENROUTER_API_KEY: undefined,
+      OPENROUTER_API_KEY: "test-openrouter",
     },
     () => {
-      assert.deepEqual(getGeneratorModelChain(), ["glm-5.3-flash"]);
-      assert.equal(resolveGeneratorModel(), "glm-5.3-flash");
+      assert.deepEqual(getGeneratorModelChain(), [
+        "minimax/minimax-m3.1-flash",
+        "tencent/hy4-flash",
+      ]);
+      assert.equal(resolveGeneratorModel(), "minimax/minimax-m3.1-flash");
     },
   );
 });
@@ -64,56 +67,38 @@ test("getGeneratorModelChain returns only the GLM primary regardless of other pr
 test("getGeneratorModelChain ignores AI_MODEL override (gateway is not the generator primary)", () => {
   withEnv(
     {
-      ZAI_API_KEY: "test-zai",
+      OPENROUTER_API_KEY: "test-openrouter",
       AI_API_KEY: "test-ai",
       AI_MODEL: "custom-gateway-model",
     },
     () => {
-      assert.deepEqual(getGeneratorModelChain(), ["glm-5.3-flash"]);
-      assert.equal(resolveGeneratorModel(), "glm-5.3-flash");
-    },
-  );
-});
-
-test("getGeneratorModelChain appends OpenRouter fallback when OPENROUTER_API_KEY is set", () => {
-  withEnv(
-    {
-      OPENAI_API_KEY: undefined,
-      GEMINI_API_KEY: undefined,
-      KIMI_API_KEY: undefined,
-      MINIMAX_API_KEY: undefined,
-      AI_API_KEY: undefined,
-      AI_MODEL: undefined,
-      OPENROUTER_API_KEY: "test-openrouter",
-      ZAI_API_KEY: "test-zai",
-    },
-    () => {
       assert.deepEqual(getGeneratorModelChain(), [
-        "glm-5.3-flash",
-        "meta/muse-spark-1.3-contributor",
+        "minimax/minimax-m3.1-flash",
+        "tencent/hy4-flash",
       ]);
+      assert.equal(resolveGeneratorModel(), "minimax/minimax-m3.1-flash");
     },
   );
 });
 
-test("getGeneratorModelChain requires ZAI_API_KEY even when other keys exist", () => {
+test("getGeneratorModelChain requires OPENROUTER_API_KEY even when other keys exist", () => {
   withEnv(
     {
       OPENAI_API_KEY: "test-openai",
       MINIMAX_API_KEY: "test-minimax",
       AI_API_KEY: "test-ai",
-      ZAI_API_KEY: undefined,
+      ZAI_API_KEY: "test-zai",
+      OPENROUTER_API_KEY: undefined,
     },
     () => {
-      assert.throws(() => getGeneratorModelChain(), /ZAI_API_KEY/);
+      assert.throws(() => getGeneratorModelChain(), /OPENROUTER_API_KEY/);
     },
   );
 });
 
-// ── Fallback stream/chat behavior. The registry's getProvider export is a
-// getter-only property, so instead of swapping the lookup we patch the
-// streamResponse/generateResponse methods on the actual provider instances
-// getProvider returns (same instance-shadowing pattern as withAdminPatches).
+// ── Fallback stream/chat behavior. Both chain models now resolve to the SAME
+// OpenRouter provider instance, so the fakes are dispatched by the `model`
+// param instead of shadowing one provider per model.
 
 type FakeProvider = {
   streamResponse?: (params: unknown) => AsyncGenerator<string>;
@@ -124,20 +109,22 @@ async function withFakedProviders(
   fakes: Record<string, FakeProvider>,
   fn: () => Promise<void>,
 ) {
-  const patched: { provider: Record<string, unknown>; method: string; saved: unknown }[] = [];
+  const provider = registry.getProvider("openrouter") as unknown as Record<string, unknown>;
+  const patched: { method: string; saved: unknown }[] = [];
   try {
-    for (const [model, fake] of Object.entries(fakes)) {
-      const provider = registry.getProvider(model) as unknown as Record<string, unknown>;
-      for (const method of ["streamResponse", "generateResponse"] as const) {
-        if (fake[method]) {
-          patched.push({ provider, method, saved: provider[method] });
-          provider[method] = fake[method];
-        }
-      }
+    for (const method of ["streamResponse", "generateResponse"] as const) {
+      if (!Object.values(fakes).some((fake) => fake[method])) continue;
+      patched.push({ method, saved: provider[method] });
+      provider[method] = (params: unknown) => {
+        const model = (params as { model?: string }).model;
+        const fake = model ? fakes[model]?.[method] : undefined;
+        if (!fake) throw new Error(`no fake registered for ${String(model)}`);
+        return fake(params);
+      };
     }
     await fn();
   } finally {
-    for (const p of patched) p.provider[p.method] = p.saved;
+    for (const p of patched) provider[p.method] = p.saved;
   }
 }
 
@@ -163,14 +150,14 @@ test("streaming: a partial yield pins the stream — original error, fallback ne
   await withEnv(TWO_MODEL_ENV, () =>
     withFakedProviders(
       {
-        "glm-5.3-flash": {
+        "minimax/minimax-m3.1-flash": {
           streamResponse: async function* () {
             yield "a";
             yield "b";
             throw new Error("primary transport died mid-stream");
           },
         },
-        "meta/muse-spark-1.3-contributor": {
+        "tencent/hy4-flash": {
           streamResponse: async function* () {
             fallbackCalls += 1;
             yield "fallback";
@@ -193,13 +180,13 @@ test("streaming: a pre-yield failure falls back transparently", async () => {
   await withEnv(TWO_MODEL_ENV, () =>
     withFakedProviders(
       {
-        "glm-5.3-flash": {
+        "minimax/minimax-m3.1-flash": {
           streamResponse: async function* () {
             primaryCalls += 1;
             throw new Error("primary down");
           },
         },
-        "meta/muse-spark-1.3-contributor": {
+        "tencent/hy4-flash": {
           streamResponse: async function* () {
             yield "f1";
             yield "f2";
@@ -219,12 +206,12 @@ test("streaming: both models failing pre-yield rejects with the LAST error", asy
   await withEnv(TWO_MODEL_ENV, () =>
     withFakedProviders(
       {
-        "glm-5.3-flash": {
+        "minimax/minimax-m3.1-flash": {
           streamResponse: async function* () {
             throw new Error("primary down");
           },
         },
-        "meta/muse-spark-1.3-contributor": {
+        "tencent/hy4-flash": {
           streamResponse: async function* () {
             throw new Error("fallback also down");
           },
@@ -245,13 +232,13 @@ test("streaming: a clean full stream never touches the fallback", async () => {
   await withEnv(TWO_MODEL_ENV, () =>
     withFakedProviders(
       {
-        "glm-5.3-flash": {
+        "minimax/minimax-m3.1-flash": {
           streamResponse: async function* () {
             yield "x";
             yield "y";
           },
         },
-        "meta/muse-spark-1.3-contributor": {
+        "tencent/hy4-flash": {
           streamResponse: async function* () {
             fallbackCalls += 1;
             yield "unused";
@@ -270,12 +257,12 @@ test("chat: primary failure falls back; both failing throws the last error", asy
   await withEnv(TWO_MODEL_ENV, () =>
     withFakedProviders(
       {
-        "glm-5.3-flash": {
+        "minimax/minimax-m3.1-flash": {
           generateResponse: async () => {
             throw new Error("primary chat down");
           },
         },
-        "meta/muse-spark-1.3-contributor": {
+        "tencent/hy4-flash": {
           generateResponse: async () => ({ content: "recovered", finishReason: "stop" }),
         },
       },
@@ -289,12 +276,12 @@ test("chat: primary failure falls back; both failing throws the last error", asy
   await withEnv(TWO_MODEL_ENV, () =>
     withFakedProviders(
       {
-        "glm-5.3-flash": {
+        "minimax/minimax-m3.1-flash": {
           generateResponse: async () => {
             throw new Error("primary chat down");
           },
         },
-        "meta/muse-spark-1.3-contributor": {
+        "tencent/hy4-flash": {
           generateResponse: async () => {
             throw new Error("fallback chat down");
           },
@@ -315,10 +302,10 @@ test("chat: a healthy primary never calls the fallback", async () => {
   await withEnv(TWO_MODEL_ENV, () =>
     withFakedProviders(
       {
-        "glm-5.3-flash": {
+        "minimax/minimax-m3.1-flash": {
           generateResponse: async () => ({ content: "primary answer", finishReason: "stop" }),
         },
-        "meta/muse-spark-1.3-contributor": {
+        "tencent/hy4-flash": {
           generateResponse: async () => {
             fallbackCalls += 1;
             return { content: "unused", finishReason: "stop" };

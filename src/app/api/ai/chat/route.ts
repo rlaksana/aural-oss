@@ -1,6 +1,6 @@
 import { buildInterviewerPrompt } from "@/lib/ai/prompts/interviewer";
 import { withAnswerKeys, type KeyedQuestion } from "@/lib/answer-keys";
-import { getProvider } from "@/lib/ai/registry";
+import { getProvider, PRIMARY_TEXT_MODEL } from "@/lib/ai/registry";
 import type { LLMMessage } from "@/lib/ai/types";
 import { resolveChatAdvance } from "@/lib/chat-advance";
 import { resolveChoiceQuestionFlow } from "@/lib/choice-question-flow";
@@ -84,14 +84,12 @@ export async function POST(req: Request) {
       (interview.questions ?? []) as KeyedQuestion[],
     )) as typeof interview.questions;
 
-    // The live-interviewer chat runs on the Z.AI GLM Coding Plan — same
-    // primary as the generator pipelines. The old LiteLLM gateway
+    // The live-interviewer chat runs on OpenRouter (MiniMax M3.1 Flash) — the
+    // same primary as the generator pipelines. The old LiteLLM gateway
     // (api-eng.andalsoftware.com) rejects datacenter IPs including Vercel's,
-    // which turned every LLM turn into a ~35s connection timeout since
-    // 2026-10-21; api.z.ai is a public endpoint reachable from Vercel.
-    // Anything GLM can't serve should go to MiniMax directly
-    // (getProvider("minimax"), Token Plan key) — never through the gateway.
-    const provider = getProvider("zai");
+    // which turned every LLM turn into a ~35s connection timeout; OpenRouter
+    // is a public endpoint reachable from Vercel.
+    const provider = getProvider("openrouter");
 
     const conversationHistory: LLMMessage[] = (messages ?? [])
       .filter(
@@ -188,6 +186,7 @@ export async function POST(req: Request) {
           }),
           temperature: 0.7,
           maxTokens: 1024,
+          model: PRIMARY_TEXT_MODEL,
           reasoningEffort: "low",
         });
 

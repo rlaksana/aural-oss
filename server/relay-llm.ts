@@ -1,6 +1,7 @@
 /**
  * Voice-relay text LLM (summaries + interviewer replies).
- * Default: MiniMax-M3.1-Flash-Preview @ temperature 0.
+ * Default: minimax/minimax-m3.1-flash via OpenRouter @ temperature 0,
+ * tencent/hy4-flash as the transport fallback.
  */
 
 import { GoogleGenAI } from "@google/genai";
@@ -8,8 +9,8 @@ import { createLogger } from "../src/lib/logger";
 
 const log = createLogger("relay-llm");
 
-export const RELAY_LLM_PRIMARY_MODEL = "MiniMax-M3.1-Flash-Preview";
-export const RELAY_LLM_FALLBACK_MODEL = "MiniMax-M3.1-Flash-Preview";
+export const RELAY_LLM_PRIMARY_MODEL = "minimax/minimax-m3.1-flash";
+export const RELAY_LLM_FALLBACK_MODEL = "tencent/hy4-flash";
 
 interface RelayLlmEndpoint {
   model: string;
@@ -48,15 +49,13 @@ function resolvePrimaryEndpoint(): RelayLlmEndpoint {
     ? (process.env.RELAY_LLM_API_KEY?.trim() || process.env.GEMINI_API_KEY?.trim() || "")
     : (
         process.env.RELAY_LLM_API_KEY?.trim() ||
-        process.env.KIMI_API_KEY?.trim() ||
-        process.env.MINIMAX_API_KEY?.trim() ||
+        process.env.OPENROUTER_API_KEY?.trim() ||
         ""
       );
   const baseUrl =
     process.env.RELAY_LLM_BASE_URL?.trim() ||
-    (process.env.KIMI_API_KEY
-      ? process.env.KIMI_BASE_URL?.trim() || "https://api.moonshot.cn/v1"
-      : process.env.MINIMAX_BASE_URL?.trim() || "https://api.minimax.io/v1");
+    process.env.OPENROUTER_BASE_URL?.trim() ||
+    "https://openrouter.ai/api/v1";
 
   return {
     model,
@@ -70,13 +69,13 @@ function resolvePrimaryEndpoint(): RelayLlmEndpoint {
 function resolveFallbackEndpoint(primary: RelayLlmEndpoint): RelayLlmEndpoint | null {
   const model =
     process.env.RELAY_LLM_FALLBACK_MODEL?.trim() || RELAY_LLM_FALLBACK_MODEL;
-  const apiKey = process.env.MINIMAX_API_KEY?.trim() || "";
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim() || "";
   if (!apiKey) return null;
 
   const baseUrl =
     process.env.RELAY_LLM_FALLBACK_BASE_URL?.trim() ||
-    process.env.MINIMAX_BASE_URL?.trim() ||
-    "https://api.minimax.io/v1";
+    process.env.OPENROUTER_BASE_URL?.trim() ||
+    "https://openrouter.ai/api/v1";
 
   const fallback: RelayLlmEndpoint = {
     model,
@@ -137,7 +136,7 @@ function logConfig(chain: RelayLlmEndpoint[]): void {
   const primary = chain[0]!;
   if (!primary.apiKey && !chain[1]?.apiKey) {
     log.warn(
-      "Relay LLM: no API key configured (set GEMINI_API_KEY, MINIMAX_API_KEY, or RELAY_LLM_API_KEY)",
+      "Relay LLM: no API key configured (set OPENROUTER_API_KEY, GEMINI_API_KEY, or RELAY_LLM_API_KEY)",
     );
     return;
   }
@@ -191,6 +190,11 @@ async function callGemini(
   return text.trim();
 }
 
+/** OpenRouter's `reasoning` object; any other OpenAI-compatible host may reject it. */
+function isOpenRouterEndpoint(baseUrl: string): boolean {
+  return baseUrl.includes("openrouter.ai");
+}
+
 async function callOpenAICompatible(
   endpoint: RelayLlmEndpoint,
   prompt: string,
@@ -207,9 +211,13 @@ async function callOpenAICompatible(
       messages: [{ role: "user", content: prompt }],
       temperature: endpoint.temperature,
       max_tokens: maxTokens,
-      // M3.1-Flash-Preview thinking depth: keep voice replies fast ("max" default is slow).
-      ...(endpoint.model.toLowerCase().startsWith("minimax")
-        ? { output_config: { effort: "low" } }
+      // Voice replies must stay fast: MiniMax M3.1 cannot disable reasoning
+      // ("low" is its floor, and its reasoning tokens share max_tokens);
+      // tencent/hy4-flash can switch reasoning off entirely.
+      ...(isOpenRouterEndpoint(endpoint.baseUrl)
+        ? endpoint.model.startsWith("tencent/")
+          ? { reasoning: { enabled: false } }
+          : { reasoning: { effort: "low" } }
         : {}),
     }),
   });
@@ -220,7 +228,17 @@ async function callOpenAICompatible(
   }
 
   const data = await res.json();
-  return data.choices?.[0]?.message?.content?.trim() || "";
+  const choice = data.choices?.[0];
+  const text = choice?.message?.content?.trim() || "";
+  if (!text) {
+    // Reasoning can eat the whole max_tokens budget and return empty content
+    // (OpenRouter finish_reason "length"); fail so the chain advances instead
+    // of muting the interviewer.
+    throw new Error(
+      `LLM API returned empty content (${endpoint.model}, finish_reason=${choice?.finish_reason ?? "unknown"})`,
+    );
+  }
+  return text;
 }
 
 async function callEndpoint(

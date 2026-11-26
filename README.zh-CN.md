@@ -182,8 +182,8 @@ Aural 是一个可自主执行结构化访谈的 AI 平台。创建访谈并分�
 | 语言 | TypeScript |
 | 数据库 | [Supabase](https://supabase.com/)（PostgreSQL、Auth、Storage、RLS） |
 | API | [tRPC](https://trpc.io/) |
-| AI / LLM | 所有文本 LLM 路径统一使用 `MiniMax-M3` |
-| 语音 | WebSocket 中继服务（MiniMax ASR + MiniMax TTS） |
+| AI / LLM | OpenRouter — 主模型 `minimax/minimax-m3.1-flash`，回退/修复 `tencent/hy4-flash` |
+| 语音 | WebSocket 中继服务（OpenRouter：`openai/whisper-1` ASR + `minimax/speech-2.8-turbo` TTS） |
 | UI | [Tailwind CSS](https://tailwindcss.com/) + [shadcn/ui](https://ui.shadcn.com/) + [Radix](https://radix-ui.com/) |
 | 代码编辑器 | [Monaco Editor](https://microsoft.github.io/monaco-editor/) |
 | 白板 | [Excalidraw](https://excalidraw.com/) |
@@ -208,10 +208,10 @@ Aural 是一个可自主执行结构化访谈的 AI 平台。创建访谈并分�
 ┌────────────────────────┐  ┌──────────────────┐
 │    Next.js 服务端      │  │  语音中继服务   │
 │  ┌──────────────────┐  │  │  ┌────────────┐  │
-│  │ tRPC 路由        │  │  │  │ MiniMax    │  │
+│  │ tRPC 路由        │  │  │  │ OpenRouter │  │
 │  ├──────────────────┤  │  │  │ ASR + TTS  │  │
 │  │ REST API 路由    │  │  │  ├────────────┤  │
-│  ├──────────────────┤  │  │  │ MiniMax-M3 │  │
+│  ├──────────────────┤  │  │  │ M3.1 Flash │  │
 │  │ AI 提供商注册表  │  │  │  │ LLM        │  │
 │  └──────────────────┘  │  │  └────────────┘  │
 └────────────┬───────────┘  └──────────────────┘
@@ -233,7 +233,7 @@ Aural 是一个可自主执行结构化访谈的 AI 平台。创建访谈并分�
 | REST API | `src/app/api/` | AI、模拟面试、语音、认证、会话生命周期和文件上传接口 |
 | 开发者 API | `src/app/api/v1/` | 访谈、问题、会话和候选人的 REST API；OpenAPI 规范位于 `/api/v1/openapi.json` |
 | AI 提供商系统 | `src/lib/ai/` | 提供商注册、任务模型选择和提示词模板 |
-| 语音中继 | `server/` | 独立 WebSocket 中继：本地 VAD 缓冲浏览器麦克风音频，每段话语调用一次 MiniMax ASR 转写，并通过 MiniMax TTS 合成回答 |
+| 语音中继 | `server/` | 独立 WebSocket 中继：本地 VAD 缓冲浏览器麦克风音频，每段话语经 OpenRouter 调用一次 ASR 转写，并通过 OpenRouter TTS 合成回答 |
 | 模拟面试 | `src/components/prep/`、`src/lib/prep/` | 上下文、回答、反馈、答案库、评分和练习历史 |
 | Supabase | `src/lib/supabase/` | 客户端、服务端、管理端工具和数据隔离 |
 
@@ -253,7 +253,7 @@ Aural 是一个可自主执行结构化访谈的 AI 平台。创建访谈并分�
 
 - Node.js 18+ 和 npm
 - Supabase 云项目，或通过 `supabase start` 启动的本地项目
-- 一个 MiniMax API 密钥（`MINIMAX_API_KEY`），驱动所有 LLM 路径（MiniMax-M3）以及语音 ASR 和 TTS
+- 一个 OpenRouter API 密钥（`OPENROUTER_API_KEY`），驱动所有文本 LLM 路径（MiniMax M3.1 Flash）以及语音 ASR 与 TTS
 
 #### 1. 克隆并安装
 
@@ -300,7 +300,7 @@ cp .env.example .env.local
 编辑 `.env.local`，至少配置：
 
 - Supabase URL 和密钥
-- `MINIMAX_API_KEY`（AI 生成、语音访谈和语音练习均需要）
+- `OPENROUTER_API_KEY`（AI 生成、语音访谈和语音练习均需要）
 - 可选的 `JINA_READER_API_KEY`，用于提高被反爬保护拦截的职位描述 URL 导入额度
 
 本地 Supabase 密钥对应关系：
@@ -366,31 +366,33 @@ aural-oss/
 
 ## AI 提供商系统
 
-所有文本 LLM 路径统一运行在 **`MiniMax-M3`** 上，只需一个密钥：`MINIMAX_API_KEY`（[platform.minimax.io](https://platform.minimax.io/)）。
+所有文本 LLM 路径统一运行在 OpenRouter 上：主模型 **`minimax/minimax-m3.1-flash`**，回退与结构化输出修复使用 **`tencent/hy4-flash`**。只需一个密钥：`OPENROUTER_API_KEY`（[openrouter.ai](https://openrouter.ai/)）。
 
 ---
 
 ## 语音中继
 
-Aural 通过单一独立 WebSocket 服务（`server/voice-relay.ts`）支持实时 AI 语音访谈，整套语音链路基于 MiniMax：
+Aural 通过单一独立 WebSocket 服务（`server/voice-relay.ts`）支持实时 AI 语音访谈。ASR、面试官回复和 TTS 全部经 OpenRouter（`server/voice-audio.ts`、`server/relay-llm.ts`）：
 
-- **ASR** — 本地 VAD 缓冲麦克风音频（RMS 门限 + 静音窗口），每段话语调用一次 `POST /v1/speech_to_text` 转写。
-- **LLM** — 面试官回复和逐题上下文摘要运行在 `MiniMax-M3` 上。
-- **TTS** — 回复通过同步 `POST /v1/t2a_v2` 合成，以 24 kHz PCM 流式发送给浏览器。
+- **ASR** — 本地 VAD 缓冲麦克风音频（RMS 门限 + 静音窗口），每段话语调用一次 `POST /audio/transcriptions` 转写（`openai/whisper-1`）。
+- **LLM** — 面试官回复和逐题上下文摘要运行在 `minimax/minimax-m3.1-flash` 上，`tencent/hy4-flash` 作为传输层回退。
+- **TTS** — 回复通过 `POST /audio/speech` 合成（`minimax/speech-2.8-turbo`，原始 PCM），以 24 kHz PCM 流式发送给浏览器。
 
 ```bash
 npm run dev:voice          # 默认端口 8766
 ```
 
-必需变量：`MINIMAX_API_KEY`（与 LLM 共用）。
+必需变量：`OPENROUTER_API_KEY`。
 
 可选变量：
 
-- `MINIMAX_BASE_URL`（默认 `https://api.minimax.io/v1`，国际站端点）
-- `MINIMAX_TTS_MODEL`（默认 `speech-2.8-turbo`）
-- `MINIMAX_TTS_VOICE_EN`（默认 `English_Trustworth_Man`）
-- `MINIMAX_TTS_VOICE_ZH`（默认 `male-qn-qingse`）
-- `MINIMAX_TTS_SPEECH_RATE`（默认 `1`，范围 0.5–2）
+- `OPENROUTER_BASE_URL`（默认 `https://openrouter.ai/api/v1`）
+- `VOICE_ASR_MODEL`（默认 `openai/whisper-1`）
+- `VOICE_TTS_MODEL`（默认 `minimax/speech-2.8-turbo`）
+- `VOICE_TTS_VOICE_EN`（默认 `English_Trustworth_Man`）
+- `VOICE_TTS_VOICE_ZH`（默认 `male-qn-qingse`）
+- `VOICE_TTS_SPEECH_RATE`（默认 `1`，范围 0.5–2）
+- `RELAY_LLM_MODEL` / `RELAY_LLM_FALLBACK_MODEL` / `RELAY_LLM_BASE_URL` 用于固定其他中继 LLM 端点
 
 ---
 
@@ -429,7 +431,7 @@ Authorization: Bearer dlv_your_key_here
 | `npm run lint` | 运行 ESLint |
 | `npm run test:web` | 运行 Web 测试 |
 | `npm run test:functional` | 运行基于 Playwright 的功能测试 |
-| `npm run dev:voice` | 启动 MiniMax 语音中继（ASR + LLM + TTS） |
+| `npm run dev:voice` | 启动语音中继（OpenRouter ASR + LLM + TTS） |
 | `npm run db:types` | 重新生成 Supabase TypeScript 类型 |
 
 ---

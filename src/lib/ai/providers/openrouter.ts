@@ -2,12 +2,24 @@ import OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import type { LLMProvider, GenerationParams, LLMResponse, LLMMessage } from "../types";
 
+/** Strip `thinking` blocks some routed models emit inline. */
+function stripThinking(text: string): string {
+  return text.replace(/<think[\s\S]*?<\/think>\s*/g, "").trim();
+}
+
+/** MiniMax M3.1 reasons at "max" by default, and reasoning tokens share
+ * max_tokens — at "high" a 700-token call can come back truncated or empty.
+ * Default to "low" (measured ~30-80 reasoning tokens); callers may raise it. */
+function reasoningParams(params: GenerationParams) {
+  return { reasoning: { effort: params.reasoningEffort ?? "low" } };
+}
+
 /** OpenRouter is OpenAI-compatible; only the base URL and key differ. */
 export class OpenRouterProvider implements LLMProvider {
   id = "openrouter";
   name = "OpenRouter";
-  models = ["meta/muse-spark-1.3-contributor"];
-  defaultModel = "meta/muse-spark-1.3-contributor";
+  models = ["minimax/minimax-m3.1-flash", "tencent/hy4-flash"];
+  defaultModel = "minimax/minimax-m3.1-flash";
 
   private client: OpenAI;
 
@@ -36,11 +48,13 @@ export class OpenRouterProvider implements LLMProvider {
       messages: this.toOpenAIMessages(params.messages),
       temperature: params.temperature ?? 0.7,
       max_tokens: params.maxTokens ?? 2048,
+      // OpenRouter's standardized reasoning control (see reasoningParams).
+      ...reasoningParams(params),
     }, { signal: params.signal });
 
     const choice = response.choices[0];
     return {
-      content: choice.message.content ?? "",
+      content: stripThinking(choice.message.content ?? ""),
       finishReason: choice.finish_reason ?? "stop",
       usage: response.usage
         ? {
@@ -60,6 +74,7 @@ export class OpenRouterProvider implements LLMProvider {
       messages: this.toOpenAIMessages(params.messages),
       temperature: params.temperature ?? 0.7,
       max_tokens: params.maxTokens ?? 2048,
+      ...reasoningParams(params),
       stream: true,
     }, { signal: params.signal });
 

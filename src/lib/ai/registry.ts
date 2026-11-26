@@ -14,8 +14,8 @@ function registerProvider(provider: LLMProvider) {
 
 // The LiteLLM gateway is deliberately NOT registered: it rejected every
 // datacenter IP (including Vercel's), so no route may resolve to it.
-// Routing rule since 2026-10-30: GLM for everything GLM can serve,
-// MiniMax directly for the rest — never through a gateway.
+// Routing rule since 2026-11-26: all text LLM routes resolve to OpenRouter
+// (MiniMax M3.1 Flash primary, Tencent HY4 Flash fallback/repair).
 registerProvider(new OpenAIProvider());
 registerProvider(new GeminiProvider());
 registerProvider(new KimiProvider());
@@ -49,11 +49,10 @@ export function listProviders(): LLMProvider[] {
 
 /**
  * Primary text-LLM for ALL routes (generator pipelines, live-interviewer
- * chat, report): Z.AI GLM Coding Plan glm-5.3-flash (measured 52s vs
- * MiniMax 147s on a generator-sized request). The live chat overrides
- * reasoning_effort to "low" for turn latency.
+ * chat, report): MiniMax M3.1 Flash served by OpenRouter. The live chat and
+ * report override reasoning effort to "low" for latency.
  */
-export const PRIMARY_TEXT_MODEL = "glm-5.3-flash";
+export const PRIMARY_TEXT_MODEL = "minimax/minimax-m3.1-flash";
 
 export const REPORT_MODEL = PRIMARY_TEXT_MODEL;
 
@@ -61,8 +60,8 @@ export const GENERATOR_MODEL = PRIMARY_TEXT_MODEL;
 
 export const PRIMARY_GENERATOR_MODEL = GENERATOR_MODEL;
 
-/** Transport-error resilience fallback on OpenRouter. */
-export const FALLBACK_GENERATOR_MODEL = "meta/muse-spark-1.3-contributor";
+/** Transport-error resilience fallback on OpenRouter (same provider, different model). */
+export const FALLBACK_GENERATOR_MODEL = "tencent/hy4-flash";
 
-/** Dedicated JSON-repair model on OpenRouter (NOT the Z.AI glm-5.3-flash). */
-export const REPAIR_MODEL = "z-ai/glm-5.3-flash";
+/** Dedicated JSON-repair model on OpenRouter. */
+export const REPAIR_MODEL = "tencent/hy4-flash";

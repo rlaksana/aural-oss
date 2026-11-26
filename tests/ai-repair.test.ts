@@ -169,9 +169,9 @@ test("truncated raw with an invalid escape recovers with ZERO repair calls", asy
   assert.equal(calls.length, 0);
 });
 
- test("REPAIR_MODEL is the OpenRouter slug, not the Z.AI look-alike", () => {
-  assert.equal(REPAIR_MODEL, "z-ai/glm-5.3-flash");
-  assert.notEqual(REPAIR_MODEL, "glm-5.3-flash");
+ test("REPAIR_MODEL is the OpenRouter slug, not the direct-provider model name", () => {
+  assert.equal(REPAIR_MODEL, "tencent/hy4-flash");
+  assert.notEqual(REPAIR_MODEL, "MiniMax-M3.1-Flash-Preview");
 });
 
 // ── Summary report schema (the repairStructured contract for /api/ai/summarize)

@@ -9,18 +9,14 @@ import type { GenerationParams, LLMResponse } from "./types";
 const log = createLogger("ai/generator-run");
 
 /**
- * Generator model chain: Z.AI GLM primary, OpenRouter transport fallback.
- * The fallback only joins the chain when OPENROUTER_API_KEY is configured.
+ * Generator model chain: MiniMax M3.1 Flash primary, Tencent HY4 Flash
+ * fallback — both on OpenRouter, so the chain is fixed once the key exists.
  */
 export function getGeneratorModelChain(): string[] {
-  if (!process.env.ZAI_API_KEY?.trim()) {
-    throw new Error("No generator LLM configured. Set ZAI_API_KEY (Z.AI Coding Plan).");
+  if (!process.env.OPENROUTER_API_KEY?.trim()) {
+    throw new Error("No generator LLM configured. Set OPENROUTER_API_KEY (OpenRouter).");
   }
-  const chain = [PRIMARY_GENERATOR_MODEL];
-  if (process.env.OPENROUTER_API_KEY?.trim()) {
-    chain.push(FALLBACK_GENERATOR_MODEL);
-  }
-  return chain;
+  return [PRIMARY_GENERATOR_MODEL, FALLBACK_GENERATOR_MODEL];
 }
 
 export function resolveGeneratorModel(): string {

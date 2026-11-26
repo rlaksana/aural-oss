@@ -1,7 +1,7 @@
 import { isAbortError } from "@/lib/abort-error";
 import { createLogger } from "@/lib/logger";
 import { NextResponse } from "next/server";
-import { resolveMiniMaxVoiceConfig } from "../../../../../server/minimax-voice";
+import { resolveVoiceAudioConfig } from "../../../../../server/voice-audio";
 import { synthesizeCoachAudio } from "./synthesize";
 
 const log = createLogger("api/voice/tts-s2s");
@@ -9,7 +9,7 @@ const log = createLogger("api/voice/tts-s2s");
 /**
  * POST /api/voice/tts-s2s
  *
- * Coach TTS synthesis via MiniMax sync t2a_v2. Always returns WAV (browser-safe).
+ * Coach TTS synthesis via OpenRouter (minimax/speech-2.8-turbo). Always returns WAV (browser-safe).
  */
 export async function POST(req: Request) {
   let body: { text?: unknown; language?: unknown };
@@ -26,10 +26,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Missing text" }, { status: 400 });
   }
 
-  const voiceConfig = resolveMiniMaxVoiceConfig();
+  const voiceConfig = resolveVoiceAudioConfig();
   if (!voiceConfig.apiKey) {
     return NextResponse.json(
-      { error: "MiniMax TTS credentials not configured" },
+      { error: "OpenRouter TTS credentials not configured" },
       { status: 503 }
     );
   }
@@ -42,15 +42,15 @@ export async function POST(req: Request) {
     const wav = await synthesizeCoachAudio(rawText, voiceConfig, language, abort.signal);
 
     if (!wav) {
-      log.warn(`MiniMax TTS returned no audio (${rawText.length} chars in)`);
+      log.warn(`TTS returned no audio (${rawText.length} chars in)`);
       return NextResponse.json(
-        { error: "MiniMax TTS returned no audio", fallback: "browser" },
+        { error: "TTS returned no audio", fallback: "browser" },
         { status: 502 },
       );
     }
 
     log.info(
-      `MiniMax TTS synthesized wav: ${wav.byteLength}B, ${Date.now() - startedAt}ms`,
+      `TTS synthesized wav: ${wav.byteLength}B, ${Date.now() - startedAt}ms`,
     );
 
     return new Response(new Uint8Array(wav), {
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
         "Content-Type": "audio/wav",
         "Cache-Control": "no-store",
         "X-Aural-TTS-Format": "wav",
-        "X-Aural-TTS-Provider": "minimax-tts",
+        "X-Aural-TTS-Provider": "openrouter-minimax-tts",
       },
     });
   } catch (err) {
@@ -67,9 +67,9 @@ export async function POST(req: Request) {
       return new Response(null, { status: 499 });
     }
     const message = err instanceof Error ? err.message : String(err);
-    log.error("MiniMax TTS synthesis failed:", message);
+    log.error("TTS synthesis failed:", message);
     return NextResponse.json(
-      { error: "MiniMax TTS synthesis failed" },
+      { error: "TTS synthesis failed" },
       { status: 502 }
     );
   }

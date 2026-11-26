@@ -44,12 +44,14 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           VOICE_RELAY_SECRET: ${{ secrets.VOICE_RELAY_SECRET }}
         run: |
           : "${SUPABASE_URL:?Missing SUPABASE_URL}"
           : "${SUPABASE_ANON_KEY:?Missing SUPABASE_ANON_KEY}"
           : "${SUPABASE_SERVICE_ROLE_KEY:?Missing SUPABASE_SERVICE_ROLE_KEY}"
           : "${MINIMAX_API_KEY:?Missing MINIMAX_API_KEY}"
+          : "${OPENROUTER_API_KEY:?Missing OPENROUTER_API_KEY}"
           : "${VOICE_RELAY_SECRET:?Missing VOICE_RELAY_SECRET}"
 
       - name: Prepare deployment directory
@@ -62,6 +64,7 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           VOICE_RELAY_SECRET: ${{ secrets.VOICE_RELAY_SECRET }}
           AI_BASE_URL: ${{ secrets.AI_BASE_URL }}
           AI_MODEL: ${{ secrets.AI_MODEL }}
@@ -79,6 +82,7 @@ jobs:
           NEXT_PUBLIC_APP_URL=https://${APP_DOMAIN}
           NEXT_PUBLIC_VOICE_RELAY_URL=wss://${APP_DOMAIN}/ws/voice
           MINIMAX_API_KEY=${MINIMAX_API_KEY}
+          OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
           VOICE_RELAY_SECRET=${VOICE_RELAY_SECRET}
           VOICE_RELAY_PORT=8766
           LOG_LEVEL=info
@@ -88,9 +92,10 @@ jobs:
           CRON_SECRET=${CRON_SECRET}
           EOF
 
-          # The voice relay's LLM uses its own defaults (MiniMax direct at
-          # api.minimax.io + MINIMAX_API_KEY). Never point RELAY_LLM_* at the
-          # old AI_* gateway — it rejects datacenter/VPS IPs.
+          # The voice relay's LLM defaults to OpenRouter (minimax/minimax-m3.1-flash,
+          # tencent/hy4-flash fallback) with OPENROUTER_API_KEY; MINIMAX_API_KEY is
+          # no longer read by the relay. Never point RELAY_LLM_* at the old AI_*
+          # gateway — it rejects datacenter/VPS IPs.
           chmod 0600 "${DEPLOY_DIR}/.env"
 
       - name: Sync application source

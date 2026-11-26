@@ -13,7 +13,7 @@ export interface GenerationParams {
   temperature?: number;
   maxTokens?: number;
   stream?: boolean;
-  /** GLM reasoning depth override — default "high" in ZaiProvider. */
+  /** Reasoning depth override, mapped to OpenRouter's `reasoning.effort`. */
   reasoningEffort?: "low" | "high";
   /** Cooperative hard-stop for batch jobs (AI operating window deadline). */
   signal?: AbortSignal;
