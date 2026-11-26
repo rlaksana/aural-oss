@@ -1,7 +1,7 @@
 /**
  * Voice audio via OpenRouter (BYOK key):
  *  - ASR: POST {base}/audio/transcriptions (base64 WAV in JSON). OpenRouter
- *    has no MiniMax ASR model, so the default is OpenAI whisper-1.
+ *    has no MiniMax ASR model, so the default is OpenAI whisper-large-v3-turbo.
  *  - TTS: POST {base}/audio/speech, model minimax/speech-2.8-turbo. MiniMax on
  *    OpenRouter returns mp3 or raw 24 kHz mono s16le PCM (no WAV container) —
  *    measured against the direct API at the same voice/speed.
@@ -34,7 +34,7 @@ export function resolveVoiceAudioConfig(
     apiKey: env.OPENROUTER_API_KEY || "",
     baseUrl: (env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1").replace(/\/$/, ""),
     ttsModel: env.VOICE_TTS_MODEL || "minimax/speech-2.8-turbo",
-    asrModel: env.VOICE_ASR_MODEL || "openai/whisper-1",
+    asrModel: env.VOICE_ASR_MODEL || "openai/whisper-large-v3-turbo",
     voiceZh: env.VOICE_TTS_VOICE_ZH || "male-qn-qingse",
     voiceEn: env.VOICE_TTS_VOICE_EN || "English_Trustworth_Man",
     speechRate,

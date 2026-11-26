@@ -49,7 +49,7 @@ test("resolveVoiceAudioConfig applies OpenRouter defaults when env is empty", ()
     apiKey: "",
     baseUrl: "https://openrouter.ai/api/v1",
     ttsModel: "minimax/speech-2.8-turbo",
-    asrModel: "openai/whisper-1",
+    asrModel: "openai/whisper-large-v3-turbo",
     voiceZh: "male-qn-qingse",
     voiceEn: "English_Trustworth_Man",
     speechRate: 1.0,
@@ -83,7 +83,7 @@ const CFG: VoiceAudioConfig = {
   apiKey: "test-key",
   baseUrl: "https://openrouter.ai/api/v1",
   ttsModel: "minimax/speech-2.8-turbo",
-  asrModel: "openai/whisper-1",
+  asrModel: "openai/whisper-large-v3-turbo",
   voiceZh: "male-qn-qingse",
   voiceEn: "English_Trustworth_Man",
   speechRate: 1.0,
@@ -116,7 +116,7 @@ test("transcribePcm posts a base64 WAV with the ASR model and language hint", as
     },
   );
   assert.equal(seen!.url, "https://openrouter.ai/api/v1/audio/transcriptions");
-  assert.equal(seen!.body.model, "openai/whisper-1");
+  assert.equal(seen!.body.model, "openai/whisper-large-v3-turbo");
   assert.equal(seen!.body.language, "id");
   const audio = seen!.body.input_audio as { data: string; format: string };
   assert.equal(audio.format, "wav");

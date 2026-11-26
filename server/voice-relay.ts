@@ -2357,12 +2357,12 @@ async function handleBrowserConnection(browserWs: WebSocket, ctx: InterviewConte
         const startedAt = Date.now();
         const text = await transcribePcm(pcm, VOICE_AUDIO, ctx.language);
         log.debug(
-          `MiniMax ASR ${pcm.length}B -> "${text.slice(0, 60)}" (${Date.now() - startedAt}ms)`,
+          `ASR ${pcm.length}B -> "${text.slice(0, 60)}" (${Date.now() - startedAt}ms)`,
         );
         if (interviewDone || browserWs.readyState !== WebSocket.OPEN) return;
         routeAsrResult(text);
       } catch (err) {
-        log.error("MiniMax ASR failed:", err);
+        log.error("ASR failed:", err);
       }
     });
   }
